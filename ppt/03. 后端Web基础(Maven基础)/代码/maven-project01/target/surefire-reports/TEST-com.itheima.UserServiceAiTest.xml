@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.itheima.UserServiceAiTest" time="0.261" tests="10" errors="0" skipped="0" failures="0">
+  <properties>
+    <property name="java.specification.version" value="17"/>
+    <property name="sun.cpu.isalist" value="amd64"/>
+    <property name="sun.jnu.encoding" value="GBK"/>
+    <property name="java.class.path" value="D:\web-ai-code\web-ai-project01\maven-project01\target\test-classes;D:\web-ai-code\web-ai-project01\maven-project01\target\classes;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-context\6.1.4\spring-context-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-aop\6.1.4\spring-aop-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-beans\6.1.4\spring-beans-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-core\6.1.4\spring-core-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-jcl\6.1.4\spring-jcl-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-expression\6.1.4\spring-expression-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\jupiter\junit-jupiter\5.9.1\junit-jupiter-5.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\jupiter\junit-jupiter-api\5.9.1\junit-jupiter-api-5.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\opentest4j\opentest4j\1.2.0\opentest4j-1.2.0.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\platform\junit-platform-commons\1.9.1\junit-platform-commons-1.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\apiguardian\apiguardian-api\1.1.2\apiguardian-api-1.1.2.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\jupiter\junit-jupiter-params\5.9.1\junit-jupiter-params-5.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\jupiter\junit-jupiter-engine\5.9.1\junit-jupiter-engine-5.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\platform\junit-platform-engine\1.9.1\junit-platform-engine-1.9.1.jar;"/>
+    <property name="java.vm.vendor" value="Oracle Corporation"/>
+    <property name="sun.arch.data.model" value="64"/>
+    <property name="user.variant" value=""/>
+    <property name="java.vendor.url" value="https://java.oracle.com/"/>
+    <property name="user.timezone" value="Asia/Shanghai"/>
+    <property name="os.name" value="Windows 10"/>
+    <property name="java.vm.specification.version" value="17"/>
+    <property name="sun.java.launcher" value="SUN_STANDARD"/>
+    <property name="user.country" value="CN"/>
+    <property name="sun.boot.library.path" value="D:\develop\JDK17\bin"/>
+    <property name="sun.java.command" value="C:\Users\deng\AppData\Local\Temp\surefire4810170680342648928\surefirebooter-20240924130506494_3.jar C:\Users\deng\AppData\Local\Temp\surefire4810170680342648928 2024-09-24T13-05-06_117-jvmRun1 surefire-20240924130506494_1tmp surefire_0-20240924130506494_2tmp"/>
+    <property name="jdk.debug" value="release"/>
+    <property name="surefire.test.class.path" value="D:\web-ai-code\web-ai-project01\maven-project01\target\test-classes;D:\web-ai-code\web-ai-project01\maven-project01\target\classes;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-context\6.1.4\spring-context-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-aop\6.1.4\spring-aop-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-beans\6.1.4\spring-beans-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-core\6.1.4\spring-core-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-jcl\6.1.4\spring-jcl-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\springframework\spring-expression\6.1.4\spring-expression-6.1.4.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\jupiter\junit-jupiter\5.9.1\junit-jupiter-5.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\jupiter\junit-jupiter-api\5.9.1\junit-jupiter-api-5.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\opentest4j\opentest4j\1.2.0\opentest4j-1.2.0.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\platform\junit-platform-commons\1.9.1\junit-platform-commons-1.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\apiguardian\apiguardian-api\1.1.2\apiguardian-api-1.1.2.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\jupiter\junit-jupiter-params\5.9.1\junit-jupiter-params-5.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\jupiter\junit-jupiter-engine\5.9.1\junit-jupiter-engine-5.9.1.jar;D:\develop\apache-maven-3.9.4\mvn_repo\org\junit\platform\junit-platform-engine\1.9.1\junit-platform-engine-1.9.1.jar;"/>
+    <property name="sun.cpu.endian" value="little"/>
+    <property name="user.home" value="C:\Users\deng"/>
+    <property name="user.language" value="zh"/>
+    <property name="java.specification.vendor" value="Oracle Corporation"/>
+    <property name="java.version.date" value="2021-09-14"/>
+    <property name="java.home" value="D:\develop\JDK17"/>
+    <property name="file.separator" value="\"/>
+    <property name="basedir" value="D:\web-ai-code\web-ai-project01\maven-project01"/>
+    <property name="java.vm.compressedOopsMode" value="Zero based"/>
+    <property name="line.separator" value="&#10;"/>
+    <property name="java.vm.specification.vendor" value="Oracle Corporation"/>
+    <property name="java.specification.name" value="Java Platform API Specification"/>
+    <property name="surefire.real.class.path" value="C:\Users\deng\AppData\Local\Temp\surefire4810170680342648928\surefirebooter-20240924130506494_3.jar"/>
+    <property name="user.script" value=""/>
+    <property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/>
+    <property name="java.runtime.version" value="17+35-LTS-2724"/>
+    <property name="user.name" value="deng"/>
+    <property name="path.separator" value=";"/>
+    <property name="os.version" value="10.0"/>
+    <property name="java.runtime.name" value="Java(TM) SE Runtime Environment"/>
+    <property name="file.encoding" value="GBK"/>
+    <property name="java.vm.name" value="Java HotSpot(TM) 64-Bit Server VM"/>
+    <property name="localRepository" value="D:\develop\apache-maven-3.9.4\mvn_repo"/>
+    <property name="java.vendor.url.bug" value="https://bugreport.java.com/bugreport/"/>
+    <property name="java.io.tmpdir" value="C:\Users\deng\AppData\Local\Temp\"/>
+    <property name="idea.version" value="2024.1"/>
+    <property name="java.version" value="17"/>
+    <property name="user.dir" value="D:\web-ai-code\web-ai-project01\maven-project01"/>
+    <property name="os.arch" value="amd64"/>
+    <property name="java.vm.specification.name" value="Java Virtual Machine Specification"/>
+    <property name="sun.os.patch.level" value=""/>
+    <property name="native.encoding" value="GBK"/>
+    <property name="java.library.path" value="D:\develop\JDK17\bin;C:\Windows\Sun\Java\bin;C:\Windows\system32;C:\Windows;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\Windows\System32\OpenSSH\;D:\develop\JDK17\bin;D:\develop\NodeJS;D:\develop\Microsoft VS Code;C:\Program Files\Intel\WiFi\bin\;C:\Program Files\Common Files\Intel\WirelessCommon\;C:\Pro;ram Files\dotnet\;D:\develop\Git\cmd;D:\develop\mysql-8.0.34-winx64\bin;D:\software\ffmpeg\bin;D:\develop\微信web开发者工具\dll;D:\develop\NodeJS\;D:\develop\apache-maven-3.9.4\bin;D:\develop\python\Scripts\;D:\develop\python\;C:\Users\deng\AppData\Local\Microsoft\WindowsApps;;D:\develop\IntelliJ IDEA 2023.1\bin;;C:\Users\deng\AppData\Local\Programs\Microsoft VS Code\bin;D:\develop\DataGrip 2023.1\bin;;C:\Users\deng\AppData\Local\Programs\Fiddler;D:\develop\IntelliJ IDEA 2024.1\bin;;C:\Users\deng\AppData\Roaming\npm;D:\develop\Microsoft VS Code\bin;."/>
+    <property name="java.vm.info" value="mixed mode, sharing"/>
+    <property name="java.vendor" value="Oracle Corporation"/>
+    <property name="java.vm.version" value="17+35-LTS-2724"/>
+    <property name="sun.io.unicode.encoding" value="UnicodeLittle"/>
+    <property name="java.class.version" value="61.0"/>
+  </properties>
+  <testcase name="getGender_MultipleMaleIdCards_ReturnsMale(String)[1]" classname="com.itheima.UserServiceAiTest" time="0.117"/>
+  <testcase name="getGender_MultipleMaleIdCards_ReturnsMale(String)[2]" classname="com.itheima.UserServiceAiTest" time="0.004"/>
+  <testcase name="getGender_MultipleMaleIdCards_ReturnsMale(String)[3]" classname="com.itheima.UserServiceAiTest" time="0.003"/>
+  <testcase name="getGender_InvalidLengthIdCard_ThrowsException" classname="com.itheima.UserServiceAiTest" time="0.007"/>
+  <testcase name="getGender_ValidMaleIdCard_ReturnsMale" classname="com.itheima.UserServiceAiTest" time="0.002"/>
+  <testcase name="getGender_MultipleFemaleIdCards_ReturnsFemale(String)[1]" classname="com.itheima.UserServiceAiTest" time="0.003"/>
+  <testcase name="getGender_MultipleFemaleIdCards_ReturnsFemale(String)[2]" classname="com.itheima.UserServiceAiTest" time="0.002"/>
+  <testcase name="getGender_MultipleFemaleIdCards_ReturnsFemale(String)[3]" classname="com.itheima.UserServiceAiTest" time="0.004"/>
+  <testcase name="getGender_NullIdCard_ThrowsException" classname="com.itheima.UserServiceAiTest" time="0.002"/>
+  <testcase name="getGender_ValidFemaleIdCard_ReturnsFemale" classname="com.itheima.UserServiceAiTest" time="0.001"/>
+</testsuite>

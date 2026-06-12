@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.nong.mapper.SysConfigMapper">
+
+    <resultMap id="BaseResultMap" type="org.nong.entity.SysConfig">
+        <id property="id" column="id"/>
+        <result property="configName" column="config_name"/>
+        <result property="configKey" column="config_key"/>
+        <result property="configValue" column="config_value"/>
+        <result property="configType" column="config_type"/>
+        <result property="remark" column="remark"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <sql id="selectColumns">
+        id, config_name, config_key, config_value, config_type,
+        remark, create_time, update_time
+    </sql>
+
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT <include refid="selectColumns"/>
+        FROM sys_config
+        ORDER BY id ASC
+    </select>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT <include refid="selectColumns"/>
+        FROM sys_config WHERE id = #{id}
+    </select>
+
+    <select id="selectByKey" resultMap="BaseResultMap">
+        SELECT <include refid="selectColumns"/>
+        FROM sys_config WHERE config_key = #{configKey}
+    </select>
+
+    <insert id="insert">
+        INSERT INTO sys_config (
+            id, config_name, config_key, config_value, config_type,
+            remark, create_time, update_time
+        ) VALUES (
+            #{id}, #{configName}, #{configKey}, #{configValue}, #{configType},
+            #{remark}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <update id="update">
+        UPDATE sys_config
+        <set>
+            <if test="configName != null">config_name = #{configName},</if>
+            <if test="configKey != null">config_key = #{configKey},</if>
+            <if test="configValue != null">config_value = #{configValue},</if>
+            <if test="configType != null">config_type = #{configType},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateByKey">
+        UPDATE sys_config
+        <set>
+            <if test="configValue != null">config_value = #{configValue},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </set>
+        WHERE config_key = #{configKey}
+    </update>
+
+</mapper>
+

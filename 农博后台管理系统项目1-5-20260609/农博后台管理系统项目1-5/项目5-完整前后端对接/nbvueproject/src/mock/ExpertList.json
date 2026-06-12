@@ -1,0 +1,6 @@
+[
+    { "idnum": 0, "name": "王德发", "introduce": "1990 年，大四的雷军联合王全国、...", "field": "无", "time": "2000-3-15", "status": 0, "isrecommand": 1 },
+    { "idnum": 1, "name": "李丽", "introduce": "1990 年，大四的雷军联合王全国、...", "field": "无", "time": "2002-4-15", "status": 0, "isrecommand": 1 },
+    { "idnum": 2, "name": "王小圆", "introduce": "1990 年，大四的雷军联合王全国、...", "field": "无", "time": "2021-5-15", "status": 1, "isrecommand": 1 },
+    { "idnum": 3, "name": "张红", "introduce": "1990 年，大四的雷军联合王全国、...", "field": "无", "time": "2020-3-17", "status": 0, "isrecommand": 0 }
+]

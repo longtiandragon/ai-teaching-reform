@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.nong.mapper.SysRoleMapper">
+
+    <resultMap id="BaseResultMap" type="org.nong.entity.SysRole">
+        <id property="id" column="id"/>
+        <result property="roleName" column="role_name"/>
+        <result property="roleKey" column="role_key"/>
+        <result property="roleSort" column="role_sort"/>
+        <result property="dataScope" column="data_scope"/>
+        <result property="status" column="status"/>
+        <result property="delFlag" column="del_flag"/>
+        <result property="remark" column="remark"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+    </resultMap>
+
+    <sql id="selectColumns">
+        id, role_name, role_key, role_sort, data_scope, status,
+        del_flag, remark, create_time, update_time
+    </sql>
+
+    <select id="selectList" resultMap="BaseResultMap">
+        SELECT <include refid="selectColumns"/>
+        FROM sys_role
+        <where>
+            del_flag = 0
+            <if test="roleName != null and roleName != ''">
+                AND role_name LIKE CONCAT('%', #{roleName}, '%')
+            </if>
+            <if test="roleKey != null and roleKey != ''">
+                AND role_key LIKE CONCAT('%', #{roleKey}, '%')
+            </if>
+            <if test="status != null">
+                AND status = #{status}
+            </if>
+        </where>
+        ORDER BY role_sort ASC, create_time DESC
+        <if test="offset != null and pageSize != null">
+            LIMIT #{offset}, #{pageSize}
+        </if>
+    </select>
+
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*)
+        FROM sys_role
+        <where>
+            del_flag = 0
+            <if test="roleName != null and roleName != ''">
+                AND role_name LIKE CONCAT('%', #{roleName}, '%')
+            </if>
+            <if test="roleKey != null and roleKey != ''">
+                AND role_key LIKE CONCAT('%', #{roleKey}, '%')
+            </if>
+            <if test="status != null">
+                AND status = #{status}
+            </if>
+        </where>
+    </select>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT <include refid="selectColumns"/>
+        FROM sys_role
+        WHERE id = #{id} AND del_flag = 0
+    </select>
+
+    <insert id="insert">
+        INSERT INTO sys_role (
+            id, role_name, role_key, role_sort, data_scope, status,
+            del_flag, remark, create_time, update_time
+        ) VALUES (
+            #{id}, #{roleName}, #{roleKey}, #{roleSort}, #{dataScope}, #{status},
+            #{delFlag}, #{remark}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <update id="update">
+        UPDATE sys_role
+        <set>
+            <if test="roleName != null">role_name = #{roleName},</if>
+            <if test="roleKey != null">role_key = #{roleKey},</if>
+            <if test="roleSort != null">role_sort = #{roleSort},</if>
+            <if test="dataScope != null">data_scope = #{dataScope},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            <if test="updateTime != null">update_time = #{updateTime},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        UPDATE sys_role SET del_flag = 1 WHERE id = #{id}
+    </delete>
+
+</mapper>
+

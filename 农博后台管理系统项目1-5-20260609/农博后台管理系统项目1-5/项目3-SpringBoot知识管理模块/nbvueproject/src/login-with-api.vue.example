@@ -1,0 +1,87 @@
+<template>
+	<div class="bg">
+		<form action="#">
+			<table cellspacing=10>			
+				<tr height=40px><td align="center">农宝管理系统</td></tr>
+				<tr height=40px><td><input type="text" placeholder="请输入用户名" v-model="username" required/></td></tr>
+				<tr height=40px><td><input type="password" placeholder="请输入密码" v-model="password" required/></td></tr>
+				<tr height=40px><td><button type="button" @click="handleLogin" :disabled="loading">
+					{{ loading ? '登录中...' : '登录' }}
+				</button></td></tr>
+			</table>
+		</form>
+	</div>
+</template>
+
+<script lang="ts" setup>
+	import { ref } from 'vue'
+	import { useRouter } from 'vue-router'
+	import { useUserStore } from './store/user-with-api'  // 使用带 API 的版本
+	
+	const router = useRouter()
+	const userStore = useUserStore()
+	
+	const username = ref('')
+	const password = ref('')
+	const loading = ref(false)
+	
+	const handleLogin = async () => {
+		if (!username.value || !password.value) {
+			alert('请输入用户名和密码')
+			return
+		}
+		
+		loading.value = true
+		
+		try {
+			// 调用 Pinia store 的 login 方法（会调用后端接口）
+			const result = await userStore.login(username.value, password.value)
+			
+			if (result.success) {
+				alert('登录成功！')
+				router.push('/main')
+			} else {
+				alert(result.message || '登录失败')
+			}
+		} catch (error) {
+			alert('登录失败，请重试')
+		} finally {
+			loading.value = false
+		}
+	}
+</script>
+
+<style scoped>
+	.bg {
+		background-image: url('./assets/images/login-bg.png');
+		background-size: cover;
+		background-position: center;
+		width: 100vw;
+		height: 100vh;
+		position: fixed;
+		top: 0;
+		left: 0;
+	}
+	table{
+		margin: 120px auto;
+		padding: 40px 40px;
+		background-color: white;
+	}
+	button{
+		width: 305px;
+		height: 50px;
+		color: white;
+		background-color: rgb(64, 158, 255);
+		border-radius: 5px;
+		border: none;
+	}
+	button:disabled {
+		background-color: #ccc;
+		cursor: not-allowed;
+	}
+	input{
+		width:300px;
+		height: 40px;
+	}
+</style>
+

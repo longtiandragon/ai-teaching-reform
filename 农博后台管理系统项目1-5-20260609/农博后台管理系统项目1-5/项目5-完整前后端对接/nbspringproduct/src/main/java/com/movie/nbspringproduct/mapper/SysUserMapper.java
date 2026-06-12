@@ -1,0 +1,13 @@
+package com.movie.nbspringproduct.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.movie.nbspringproduct.entity.SysUser;
+import org.apache.ibatis.annotations.Mapper;
+
+/**
+ * 系统用户Mapper接口
+ */
+@Mapper
+public interface SysUserMapper extends BaseMapper<SysUser> {
+}
+

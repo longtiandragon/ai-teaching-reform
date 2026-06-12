@@ -1,0 +1,126 @@
+{
+  "lessons": [
+    {
+      "order": 1,
+      "slug": "03-maven-basic",
+      "title": "Maven 基础与 Java 项目构建",
+      "file": "lesson-01-03-maven-basic.md",
+      "summary": "让学生理解 Maven 的项目结构、依赖坐标、生命周期和测试打包流程，为后续 SpringBoot 工程做准备。",
+      "sources": [
+        "ppt\\03. 后端Web基础(Maven基础)\\PPT\\day03-Maven基础.pptx（70 页）"
+      ]
+    },
+    {
+      "order": 2,
+      "slug": "04-springboot-web-basic",
+      "title": "SpringBoot Web 入门与分层解耦",
+      "file": "lesson-02-04-springboot-web-basic.md",
+      "summary": "从 HTTP 请求处理、Controller 入门、三层架构到 IOC/DI，建立 SpringBoot Web 开发第一条完整调用链。",
+      "sources": [
+        "ppt\\04. 后端Web基础(基础知识)\\PPT\\Day04-Web基础知识.pptx（70 页）"
+      ]
+    },
+    {
+      "order": 3,
+      "slug": "05-mysql-sql",
+      "title": "MySQL 数据库与 SQL 基础",
+      "file": "lesson-03-05-mysql-sql.md",
+      "summary": "讲授数据库、DBMS、SQL、表结构、约束、多表设计、查询和事务，为 Web 后端持久化建立基础。",
+      "sources": [
+        "ppt\\05. 后端Web基础(数据库)\\PPT\\Day05-数据库.pptx（67 页）"
+      ]
+    },
+    {
+      "order": 4,
+      "slug": "06-jdbc-mybatis",
+      "title": "JDBC、连接池与 MyBatis 入门",
+      "file": "lesson-04-06-jdbc-mybatis.md",
+      "summary": "从 JDBC 规范和 PreparedStatement 出发，引出连接池、MyBatis Mapper、XML/注解 SQL 与 SpringBoot 整合。",
+      "sources": [
+        "ppt\\06. 后端Web基础(java操作数据库)\\PPT\\Day06. 后端Web基础(java操作数据库).pptx（49 页）"
+      ]
+    },
+    {
+      "order": 5,
+      "slug": "07-dept-management",
+      "title": "Tlias 部门管理与 RESTful 接口",
+      "file": "lesson-05-07-dept-management.md",
+      "summary": "围绕部门查询、新增、修改、删除实现前后端分离接口，建立统一响应、日志和接口文档意识。",
+      "sources": [
+        "ppt\\07. 后端Web实战(部门管理)\\PPT\\Day07. 后端Web实战(部门管理).pptx（81 页）"
+      ]
+    },
+    {
+      "order": 6,
+      "slug": "08-emp-query",
+      "title": "员工管理一：多表关系、多表查询与分页",
+      "file": "lesson-06-08-emp-query.md",
+      "summary": "讲授一对多、一对一、多对多关系、外键、连接查询，并完成员工列表分页和条件查询。",
+      "sources": [
+        "ppt\\08. 后端Web实战(员工管理)\\PPT\\Day08. 后端Web实战(员工管理).pptx（64 页）"
+      ]
+    },
+    {
+      "order": 7,
+      "slug": "09-emp-save-upload-transaction",
+      "title": "员工管理二：新增员工、事务与文件上传",
+      "file": "lesson-07-09-emp-save-upload-transaction.md",
+      "summary": "围绕员工基本信息和工作经历批量保存，讲解主键回填、foreach 批量插入、声明式事务和文件上传。",
+      "sources": [
+        "ppt\\09. 后端Web实战(员工管理)\\PPT\\Day09. 后端Web实战(员工管理).pptx（52 页）"
+      ]
+    },
+    {
+      "order": 8,
+      "slug": "10-emp-update-exception-report",
+      "title": "员工管理三：删除、修改、异常处理与统计",
+      "file": "lesson-08-10-emp-update-exception-report.md",
+      "summary": "完成批量删除、查询回显、员工修改、全局异常处理和统计报表接口，把 CRUD 推向可维护状态。",
+      "sources": [
+        "ppt\\10. 后端Web实战(员工管理)\\PPT\\Day10. 后端Web实战(员工管理).pptx（35 页）"
+      ]
+    },
+    {
+      "order": 9,
+      "slug": "11-project-practice",
+      "title": "班级与学员管理综合实战",
+      "file": "lesson-09-11-project-practice.md",
+      "summary": "以小组形式完成班级管理、学员管理、违纪处理和统计报表，训练需求分析、接口实现、联调和演示表达。",
+      "sources": [
+        "ppt\\11. 后端Web实战(项目实战)\\PPT\\Day11. 后端Web实战(项目实战).pptx（6 页）"
+      ]
+    },
+    {
+      "order": 10,
+      "slug": "12-login-auth",
+      "title": "登录认证、会话技术、JWT 与拦截器",
+      "file": "lesson-10-12-login-auth.md",
+      "summary": "从用户名密码登录引出登录标记、Cookie/Session、JWT、Filter/Interceptor 和统一登录校验。",
+      "sources": [
+        "ppt\\12. 后端Web实战(登录认证)\\PPT\\12. 后端Web实战(登录认证).pptx（52 页）"
+      ]
+    },
+    {
+      "order": 11,
+      "slug": "13-aop-log",
+      "title": "AOP 与操作日志",
+      "file": "lesson-11-13-aop-log.md",
+      "summary": "讲授连接点、切入点、通知、切面、目标对象和代理执行流程，并用自定义注解完成操作日志记录。",
+      "sources": [
+        "ppt\\13. 后端Web进阶(AOP)\\PPT\\13. 后端Web进阶(AOP).pptx（34 页）"
+      ]
+    },
+    {
+      "order": 12,
+      "slug": "14-springboot-principle",
+      "title": "SpringBoot 原理、配置优先级、Bean 管理与 Maven 高级",
+      "file": "lesson-12-14-springboot-principle.md",
+      "summary": "收束 SpringBoot 工作原理，讲解配置优先级、Bean 作用域、第三方 Bean、自定义 starter、自动配置、多模块、继承聚合和私服。",
+      "sources": [
+        "ppt\\14. 后端Web进阶(SpringBoot原理&Maven高级)\\PPT\\14. 后端Web开发总结.pptx（6 页）",
+        "ppt\\14. 后端Web进阶(SpringBoot原理&Maven高级)\\PPT\\14. 后端Web进阶(Maven高级).pptx（35 页）",
+        "ppt\\14. 后端Web进阶(SpringBoot原理&Maven高级)\\PPT\\14. 后端Web进阶(SpringBoot原理).pptx（36 页）"
+      ]
+    }
+  ]
+}

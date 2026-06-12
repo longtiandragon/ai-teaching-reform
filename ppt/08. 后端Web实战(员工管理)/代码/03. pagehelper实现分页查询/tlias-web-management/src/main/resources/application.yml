@@ -1,0 +1,13 @@
+#配置数据库连接信息
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/tlias
+    username: root
+    password: 1234
+#配置mybatis的日志输出到控制台
+mybatis:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    #配置mybatis的驼峰命名的映射开关
+    map-underscore-to-camel-case: true

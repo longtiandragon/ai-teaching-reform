@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.nong.mapper.NbFarmMarketMapper">
+
+    <resultMap id="BaseResultMap" type="org.nong.entity.NbFarmMarket">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="regionId" column="region_id"/>
+        <result property="remark" column="remark"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="createdTime" column="create_time"/>
+        <result property="updatedTime" column="update_time"/>
+    </resultMap>
+
+    <sql id="selectColumns">
+        id, name, region_id, remark, create_time, update_time
+    </sql>
+
+    <select id="selectList" resultMap="BaseResultMap">
+        SELECT <include refid="selectColumns"/>
+        FROM nb_farm_market
+        <where>
+            <if test="name != null and name != ''">
+                AND name LIKE CONCAT('%', #{name}, '%')
+            </if>
+            <if test="regionId != null and regionId != ''">
+                AND region_id = #{regionId}
+            </if>
+        </where>
+        ORDER BY create_time DESC
+        <if test="offset != null and pageSize != null">
+            LIMIT #{offset}, #{pageSize}
+        </if>
+    </select>
+
+    <select id="selectCount" resultType="long">
+        SELECT COUNT(*) FROM nb_farm_market
+        <where>
+            <if test="name != null and name != ''">
+                AND name LIKE CONCAT('%', #{name}, '%')
+            </if>
+            <if test="regionId != null and regionId != ''">
+                AND region_id = #{regionId}
+            </if>
+        </where>
+    </select>
+
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT <include refid="selectColumns"/>
+        FROM nb_farm_market WHERE id = #{id}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO nb_farm_market (name, region_id, created_time, updated_time)
+        VALUES (#{name}, #{regionId}, #{createdTime}, #{updatedTime})
+    </insert>
+
+    <update id="update">
+        UPDATE nb_farm_market
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="regionId != null">region_id = #{regionId},</if>
+            <if test="updatedTime != null">updated_time = #{updatedTime},</if>
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM nb_farm_market WHERE id = #{id}
+    </delete>
+
+</mapper>
+

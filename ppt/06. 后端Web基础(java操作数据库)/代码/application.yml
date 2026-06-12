@@ -1,0 +1,11 @@
+#定义对象/Map集合
+user:
+  name: Tom
+  age: 18
+  gender: 男
+
+#定义数组/List/Set集合
+hobby:
+  - Java
+  - Game
+  - Sport

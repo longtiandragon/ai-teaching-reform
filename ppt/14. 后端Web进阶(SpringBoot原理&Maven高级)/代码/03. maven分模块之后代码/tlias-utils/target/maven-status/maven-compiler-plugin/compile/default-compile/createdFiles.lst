@@ -1,0 +1,4 @@
+com\itheima\utils\AliyunOSSOperator.class
+com\itheima\utils\AliyunOSSProperties.class
+com\itheima\utils\CurrentHolder.class
+com\itheima\utils\JwtUtils.class
