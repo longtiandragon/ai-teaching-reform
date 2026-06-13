@@ -459,7 +459,7 @@ def _project_lesson(module: dict) -> LessonDetail:
             part
             for part in [
                 f"课程标准对应：{standard_unit}" if standard_unit else "",
-                f"真实来源：\n{source_list}",
+                f"资料来源：\n{source_list}",
                 f"项目文档摘录：\n{doc_excerpt}" if doc_excerpt else "",
                 f"关键代码摘录：\n```java\n{template}\n```" if template else "",
             ]

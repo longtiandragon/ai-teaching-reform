@@ -2,13 +2,13 @@
   <main class="teacher-layout">
     <section class="teacher-hero">
       <div>
-        <p class="eyebrow">Teaching Command Center</p>
-        <h2>真实课程知识库与 AI 交互看板</h2>
-        <p>只展示本项目已经入库的课程 Markdown、农博项目文档、需求规格、职业标准和真实交互记录。</p>
+        <p class="eyebrow">Teaching Center</p>
+        <h2>班级学习管理</h2>
+        <p>查看班级进度、学生提交、自检结果和需要重点关注的学习环节。</p>
       </div>
       <div class="hero-actions">
         <el-tag :type="health?.deepseek_live ? 'success' : 'warning'">
-          {{ health?.deepseek_live ? 'DeepSeek Live' : '真实调用未开启' }}
+          {{ health?.deepseek_live ? '智能助教可用' : '智能助教未连接' }}
         </el-tag>
         <el-button type="primary" :icon="DatabaseZap" :loading="ingesting" @click="ingest">初始化知识库</el-button>
       </div>
@@ -22,12 +22,66 @@
       </div>
     </section>
 
+    <section class="class-grid">
+      <article v-for="item in analytics?.classes || []" :key="item.id" class="panel class-card">
+        <div>
+          <p class="eyebrow">Class</p>
+          <h3>{{ item.name }}</h3>
+          <span>{{ item.students }} 名学生 · {{ item.records }} 条记录</span>
+        </div>
+        <strong>{{ item.completionRate }}%</strong>
+        <el-progress :percentage="item.completionRate" :stroke-width="8" />
+        <small>平均分 {{ item.averageScore || '--' }}</small>
+      </article>
+    </section>
+
+    <section class="panel student-progress-panel">
+      <div class="panel-title">
+        <div>
+          <p class="eyebrow">Student Progress</p>
+          <h3>班级学生进度</h3>
+        </div>
+        <Users :size="19" />
+      </div>
+      <div class="student-table-wrap">
+        <table class="student-table" v-if="analytics?.studentProgress?.length">
+          <thead>
+            <tr>
+              <th>学生</th>
+              <th>课程</th>
+              <th>完成</th>
+              <th>平均分</th>
+              <th>最近关卡</th>
+              <th>最近活动</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="student in analytics.studentProgress" :key="student.studentId">
+              <td>
+                <strong>{{ student.studentName }}</strong>
+                <small>{{ student.studentNo }}</small>
+              </td>
+              <td>{{ courseName(student.courseId) }}</td>
+              <td>
+                <el-progress :percentage="student.completionRate" :stroke-width="7" />
+                <small>{{ student.completed }}/{{ student.total }}</small>
+              </td>
+              <td>{{ student.averageScore || '--' }}</td>
+              <td>{{ lessonLabel(student.lastLessonId) || '未开始' }}</td>
+              <td>{{ student.lastActiveAt ? formatTime(student.lastActiveAt) : '暂无' }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="empty-state">暂无学生学习记录。学生完成自检后这里会出现进度。</div>
+      </div>
+    </section>
+
     <section class="evidence-grid">
       <div class="panel evidence-panel">
         <div class="panel-title">
           <div>
-            <p class="eyebrow">Indexed Sources</p>
-            <h3>知识库真实来源</h3>
+            <p class="eyebrow">Course Materials</p>
+            <h3>课程资料范围</h3>
           </div>
           <ShieldCheck :size="19" />
         </div>
@@ -52,7 +106,7 @@
         </div>
         <dl>
           <div>
-            <dt>RAG 后端</dt>
+            <dt>资料检索</dt>
             <dd>{{ health?.rag_backend || 'loading' }}</dd>
           </div>
           <div>
@@ -64,12 +118,12 @@
             <dd>{{ analytics?.summary.kbCoverage ?? 0 }}%</dd>
           </div>
           <div>
-            <dt>DeepSeek Key</dt>
+            <dt>助教配置</dt>
             <dd>{{ health?.deepseek_configured ? '已配置' : '未配置' }}</dd>
           </div>
           <div>
-            <dt>模型调用</dt>
-            <dd>{{ health?.deepseek_live ? '真实请求' : '未开启' }}</dd>
+            <dt>助教状态</dt>
+            <dd>{{ health?.deepseek_live ? '可用' : '未开启' }}</dd>
           </div>
           <div>
             <dt>模型</dt>
@@ -82,8 +136,8 @@
     <section class="panel skill-panel">
       <div class="panel-title">
         <div>
-          <p class="eyebrow">Agent Skills</p>
-          <h3>本地 AI 工具能力</h3>
+          <p class="eyebrow">Teaching Tools</p>
+          <h3>辅助教学工具</h3>
         </div>
         <Bot :size="19" />
       </div>
@@ -104,12 +158,12 @@
         <div class="panel-title">
           <div>
             <p class="eyebrow">Learning Records</p>
-            <h3>真实章节交互分布</h3>
+            <h3>章节学习分布</h3>
           </div>
           <Activity :size="19" />
         </div>
         <div v-if="analytics?.lessonProgress?.length" ref="progressChart" class="chart"></div>
-        <div v-else class="empty-state">暂无学生交互记录，完成一次真实问答或练习后会生成分布。</div>
+        <div v-else class="empty-state">暂无学生学习记录，完成一次自检或提交后会生成分布。</div>
       </div>
 
       <div class="panel chart-panel">
@@ -128,7 +182,7 @@
         <div class="panel-title">
           <div>
             <p class="eyebrow">Question Heat</p>
-            <h3>真实热点词</h3>
+            <h3>提问热点</h3>
           </div>
           <MessageSquareText :size="19" />
         </div>
@@ -139,7 +193,7 @@
             <strong>{{ item.count }}</strong>
           </div>
         </div>
-        <div v-else class="empty-state compact">暂无真实提问记录。</div>
+        <div v-else class="empty-state compact">暂无提问记录。</div>
       </div>
 
       <div class="panel coverage-panel">
@@ -163,7 +217,7 @@
         <div class="panel-title">
           <div>
             <p class="eyebrow">Recent Activity</p>
-            <h3>最近真实交互</h3>
+            <h3>最近学习动态</h3>
           </div>
           <ClipboardCheck :size="19" />
         </div>
@@ -198,7 +252,7 @@
             </div>
           </article>
         </div>
-        <div v-else class="empty-state compact">暂无真实依据，不生成干预建议。</div>
+        <div v-else class="empty-state compact">暂无需要干预的学生。</div>
       </div>
     </section>
 
@@ -330,14 +384,14 @@ let progressInstance: echarts.ECharts | null = null
 let weakInstance: echarts.ECharts | null = null
 
 const metrics = computed(() => [
-  { label: '今日交互', value: analytics.value?.summary.activeToday ?? 0, icon: Users },
-  { label: 'AI 提问', value: analytics.value?.summary.aiQuestions ?? 0, icon: Bot },
-  { label: '知识片段', value: analytics.value?.summary.kbChunks ?? health.value?.rag_config?.chunks ?? 0, icon: FileSearch },
-  { label: '课程覆盖', value: `${analytics.value?.summary.kbCoverage ?? 0}%`, icon: Target },
+  { label: '学生人数', value: analytics.value?.summary.students ?? 0, icon: Users },
+  { label: '今日活跃', value: analytics.value?.summary.activeToday ?? 0, icon: Bot },
+  { label: '整体完成率', value: `${analytics.value?.summary.completionRate ?? 0}%`, icon: Target },
+  { label: '需干预', value: analytics.value?.summary.interventionTasks ?? 0, icon: ClipboardCheck },
 ])
 const courseSources = [
   { title: 'SpringBoot 12 讲 Markdown', scope: 'docs/course-materials 下的 12 篇课程整理稿', icon: BookOpen },
-  { title: '农博后台真实项目', scope: '需求、接口、数据库、最终 SpringBoot/Vue 源码', icon: ClipboardCheck },
+  { title: '农博后台项目资料', scope: '需求、接口、数据库、后端与前端源码', icon: ClipboardCheck },
   { title: 'JavaWeb 职业技能标准', scope: '301.JavaWeb应用开发职业技能等级标准.pdf 摘要', icon: FileText },
   { title: '农宝需求规格说明书', scope: '农宝系统_需求规格说明书 v4.0.docx 后台相关内容', icon: TableProperties },
 ]
@@ -498,6 +552,14 @@ function lessonLabel(lid: string) {
   return map[lid] || lid.replace('springboot-', '').replace('nongbo-', '')
 }
 
+function courseName(courseId: string) {
+  return courseId === 'nongbo-admin-project' ? '农博项目课' : 'SpringBoot 12 讲'
+}
+
+function formatTime(value: string) {
+  return new Date(value).toLocaleString('zh-CN', { hour12: false })
+}
+
 function qTypeTag(t: string) { return t === 'code_fill' ? '' : t === 'short_answer' ? 'success' : '' }
 function qTypeLabel(t: string) {
   const m: Record<string, string> = { single_choice: '单选', multi_choice: '多选', true_false: '判断', short_answer: '简答', code_fill: '填空' }
@@ -636,6 +698,84 @@ async function removeQuestion(id: string) {
 
 .metric strong {
   font-size: 30px;
+}
+
+.class-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.class-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px;
+  gap: 10px 16px;
+  align-items: center;
+  padding: 16px;
+}
+
+.class-card h3 {
+  margin: 0 0 6px;
+  color: #17243a;
+  font-size: 18px;
+}
+
+.class-card span,
+.class-card small {
+  color: #61728a;
+  font-size: 13px;
+}
+
+.class-card strong {
+  color: #1d5fbf;
+  font-size: 28px;
+  text-align: right;
+}
+
+.class-card .el-progress,
+.class-card small {
+  grid-column: 1 / -1;
+}
+
+.student-progress-panel {
+  margin-top: 16px;
+}
+
+.student-table-wrap {
+  overflow: auto;
+}
+
+.student-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 860px;
+}
+
+.student-table th,
+.student-table td {
+  border-top: 1px solid #e8eef6;
+  padding: 12px 14px;
+  color: #33445f;
+  font-size: 13px;
+  text-align: left;
+}
+
+.student-table th {
+  color: #64748b;
+  background: #f8fbff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.student-table td strong,
+.student-table td small {
+  display: block;
+}
+
+.student-table td small {
+  margin-top: 4px;
+  color: #718096;
 }
 
 .evidence-grid {

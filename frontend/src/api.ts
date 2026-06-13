@@ -27,6 +27,38 @@ export interface Course {
   lessons: LessonSummary[]
 }
 
+export interface ClassInfo {
+  id: string
+  name: string
+  course_id: string
+}
+
+export interface UserInfo {
+  id: string
+  name: string
+  role: 'student' | 'teacher'
+  class_id?: string | null
+  class_name?: string | null
+  student_no?: string | null
+}
+
+export interface LearningRecord {
+  id: number
+  student_id: string
+  class_id?: string | null
+  course_id: string
+  lesson_id: string
+  kind: string
+  score?: number | null
+  correct?: number | null
+  total?: number | null
+  code?: string | null
+  notes?: string | null
+  feedback?: string | null
+  answers: Record<string, unknown>[]
+  created_at: string
+}
+
 export interface Lesson {
   id: string
   course_id?: string
@@ -49,6 +81,86 @@ export interface AgentSkill {
   description: string
   input_schema: Record<string, unknown>
   output_type: string
+}
+
+export interface CourseLine {
+  id: string
+  slug: string
+  title: string
+  description: string
+  target_audience: string
+  tech_stack: string[]
+  status: string
+}
+
+export interface LearningTaskSummary {
+  id: string
+  module_id: string
+  course_line_id: string
+  title: string
+  type: string
+  status: 'completed' | 'active' | 'locked' | 'needs_revision'
+  progress: number
+  score?: number | null
+  required_artifact_type: string
+}
+
+export interface LearningModuleSummary {
+  id: string
+  course_line_id: string
+  title: string
+  description: string
+  business_context: string
+  progress: number
+  tasks: LearningTaskSummary[]
+}
+
+export interface LearningMap {
+  courseLineId: string
+  title: string
+  description: string
+  currentModule?: { id: string; title: string } | null
+  modules: LearningModuleSummary[]
+  tasks: LearningTaskSummary[]
+}
+
+export interface LearningTaskDetail {
+  id: string
+  module_id: string
+  course_line_id: string
+  title: string
+  type: string
+  goal: string
+  scenario: string
+  instruction: string
+  required_artifact_type: string
+  difficulty: number
+  unlock_policy: Record<string, any>
+  rubrics: Array<Record<string, any>>
+}
+
+export interface RubricScore {
+  criterion_id: string
+  name: string
+  type: string
+  required: boolean
+  passed: boolean
+  score: number
+  weight: number
+  reason: string
+}
+
+export interface AICheckResult {
+  passed: boolean
+  score: number
+  level: 'passed' | 'needs_revision' | 'blocked'
+  reply: string
+  strengths: string[]
+  problems: Array<{ type: string; message: string; suggestion: string }>
+  nextActions: string[]
+  evidence: Citation[]
+  rubricScores: RubricScore[]
+  nextTaskUnlocked: boolean
 }
 
 // ---------- 题库 ----------
@@ -89,8 +201,48 @@ export const api = {
   async courses(): Promise<Course[]> {
     return (await axios.get('/api/courses')).data.courses
   },
+  async sessionBootstrap(): Promise<{ classes: ClassInfo[]; users: UserInfo[] }> {
+    return (await axios.get('/api/session/bootstrap')).data
+  },
+  async login(user_id: string): Promise<UserInfo> {
+    return (await axios.post('/api/session/login', { user_id })).data
+  },
   async lesson(courseId: string, lessonId: string): Promise<Lesson> {
     return (await axios.get(`/api/courses/${courseId}/lessons/${lessonId}`)).data.lesson
+  },
+  async courseLines(): Promise<CourseLine[]> {
+    return (await axios.get('/api/course-lines')).data
+  },
+  async learningMap(courseLineId: string, studentId?: string): Promise<LearningMap> {
+    const params = new URLSearchParams()
+    if (studentId) params.set('student_id', studentId)
+    const query = params.toString()
+    return (await axios.get(`/api/course-lines/${courseLineId}/learning-map${query ? `?${query}` : ''}`)).data
+  },
+  async learningTask(taskId: string): Promise<LearningTaskDetail> {
+    return (await axios.get(`/api/tasks/${taskId}`)).data
+  },
+  async aiCheck(payload: {
+    courseLineId: string
+    moduleId: string
+    taskId: string
+    studentId: string
+    artifactType?: string
+    studentInput: string
+    attachments?: Record<string, unknown>[]
+    chatHistory?: Record<string, unknown>[]
+  }): Promise<AICheckResult> {
+    return (await axios.post('/api/ai/check', payload)).data
+  },
+  async aiTaskChat(payload: {
+    courseLineId: string
+    moduleId?: string
+    taskId?: string
+    studentId?: string
+    question: string
+    chatHistory?: Record<string, unknown>[]
+  }) {
+    return (await axios.post('/api/ai/chat', payload)).data
   },
   async chat(payload: { course_id: string; lesson_id?: string; question: string; mode?: string }) {
     return (await axios.post('/api/chat', payload)).data
@@ -136,8 +288,25 @@ export const api = {
       }
     }
   },
-  async submitPractice(payload: { course_id: string; lesson_id: string; code: string; notes: string }) {
+  async submitPractice(payload: { course_id: string; lesson_id: string; code: string; notes: string; student_id?: string }) {
     return (await axios.post('/api/practice/submit', payload)).data
+  },
+  async submitSelfCheck(payload: {
+    student_id: string
+    course_id: string
+    lesson_id: string
+    score: number
+    correct: number
+    total: number
+    answers: Record<string, unknown>[]
+  }) {
+    return (await axios.post('/api/learning/self-check', payload)).data
+  },
+  async studentRecords(studentId: string, courseId?: string): Promise<{ records: LearningRecord[] }> {
+    const params = new URLSearchParams()
+    if (courseId) params.set('course_id', courseId)
+    const query = params.toString()
+    return (await axios.get(`/api/students/${studentId}/records${query ? `?${query}` : ''}`)).data
   },
   async ingest() {
     return (await axios.post('/api/kb/ingest')).data

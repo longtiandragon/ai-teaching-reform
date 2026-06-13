@@ -1,1 +1,1 @@
-"""AI teaching reform demo backend."""
+"""Web training platform backend."""

@@ -53,6 +53,7 @@ class ChatRequest(BaseModel):
     course_id: str
     lesson_id: str | None = None
     mode: Literal["student", "teacher"] = "student"
+    student_id: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -67,6 +68,7 @@ class PracticeSubmission(BaseModel):
     lesson_id: str
     code: str = Field(min_length=1)
     notes: str = ""
+    student_id: str | None = None
 
 
 class PracticeFeedback(BaseModel):
@@ -76,6 +78,57 @@ class PracticeFeedback(BaseModel):
     ai_comment: str
     citations: list[Citation]
     fallback: bool = False
+
+
+class ClassInfo(BaseModel):
+    id: str
+    name: str
+    course_id: str
+
+
+class UserInfo(BaseModel):
+    id: str
+    name: str
+    role: Literal["student", "teacher"]
+    class_id: str | None = None
+    class_name: str | None = None
+    student_no: str | None = None
+
+
+class SessionLoginRequest(BaseModel):
+    user_id: str
+
+
+class SessionBootstrapResponse(BaseModel):
+    classes: list[ClassInfo]
+    users: list[UserInfo]
+
+
+class SelfCheckSubmission(BaseModel):
+    student_id: str
+    course_id: str
+    lesson_id: str
+    score: int
+    correct: int
+    total: int
+    answers: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class LearningRecord(BaseModel):
+    id: int
+    student_id: str
+    class_id: str | None = None
+    course_id: str
+    lesson_id: str
+    kind: str
+    score: int | None = None
+    correct: int | None = None
+    total: int | None = None
+    code: str | None = None
+    notes: str | None = None
+    feedback: str | None = None
+    answers: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: str
 
 
 class IngestResponse(BaseModel):
@@ -113,6 +166,112 @@ class AgentSkillRunResponse(BaseModel):
     result: dict
     citations: list[Citation] = Field(default_factory=list)
     fallback: bool = False
+
+
+class RubricScore(BaseModel):
+    criterion_id: str
+    name: str
+    type: str
+    required: bool = False
+    passed: bool
+    score: int
+    weight: int
+    reason: str
+
+
+class LearningTaskSummary(BaseModel):
+    id: str
+    module_id: str
+    course_line_id: str
+    title: str
+    type: str
+    status: Literal["completed", "active", "locked", "needs_revision"]
+    progress: int = 0
+    score: int | None = None
+    required_artifact_type: str = "text"
+
+
+class LearningModuleSummary(BaseModel):
+    id: str
+    course_line_id: str
+    title: str
+    description: str = ""
+    business_context: str = ""
+    progress: int = 0
+    tasks: list[LearningTaskSummary] = Field(default_factory=list)
+
+
+class CourseLineSummary(BaseModel):
+    id: str
+    slug: str
+    title: str
+    description: str
+    target_audience: str = ""
+    tech_stack: list[str] = Field(default_factory=list)
+    status: str = "active"
+
+
+class LearningMapResponse(BaseModel):
+    courseLineId: str
+    title: str
+    description: str
+    currentModule: dict[str, Any] | None = None
+    modules: list[LearningModuleSummary]
+    tasks: list[LearningTaskSummary]
+
+
+class LearningTaskDetail(BaseModel):
+    id: str
+    module_id: str
+    course_line_id: str
+    title: str
+    type: str
+    goal: str
+    scenario: str
+    instruction: str
+    required_artifact_type: str
+    difficulty: int = 1
+    unlock_policy: dict[str, Any] = Field(default_factory=dict)
+    rubrics: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AICheckRequest(BaseModel):
+    courseLineId: str
+    moduleId: str
+    taskId: str
+    studentId: str
+    artifactType: str | None = None
+    studentInput: str = Field(min_length=1)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    chatHistory: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AICheckProblem(BaseModel):
+    type: str
+    message: str
+    suggestion: str = ""
+
+
+class AICheckResponse(BaseModel):
+    passed: bool
+    score: int
+    level: Literal["passed", "needs_revision", "blocked"]
+    reply: str
+    strengths: list[str] = Field(default_factory=list)
+    problems: list[AICheckProblem] = Field(default_factory=list)
+    nextActions: list[str] = Field(default_factory=list)
+    evidence: list[Citation] = Field(default_factory=list)
+    rubricScores: list[RubricScore] = Field(default_factory=list)
+    nextTaskUnlocked: bool = False
+
+
+class AIChatTaskRequest(BaseModel):
+    courseLineId: str
+    moduleId: str | None = None
+    taskId: str | None = None
+    studentId: str | None = None
+    question: str = Field(min_length=1)
+    chatHistory: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ---------- 题库模型 ----------

@@ -13,7 +13,7 @@ load_dotenv(ROOT_DIR / ".env")
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT_DIR / ".env", extra="ignore")
 
-    app_name: str = "AI Teaching Reform Demo"
+    app_name: str = "Web Training Platform"
     app_env: str = Field(default="development", alias="APP_ENV")
     deepseek_api_key: str = Field(default="", alias="DEEPSEEK_API_KEY")
     deepseek_base_url: str = Field(default="https://api.deepseek.com", alias="DEEPSEEK_BASE_URL")
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     @property
     def db_path(self) -> Path:
-        return self.data_dir / "demo.sqlite"
+        return self.data_dir / "learning.sqlite"
 
 
 @lru_cache

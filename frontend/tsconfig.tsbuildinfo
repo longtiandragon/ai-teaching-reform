@@ -1,1 +1,1 @@
-{"root":["./src/api.ts","./src/env.d.ts","./src/main.ts","./src/router.ts","./src/stores/course.ts","./src/utils/markdown.ts","./src/app.vue","./src/views/studentworkspace.vue","./src/views/teacherdashboard.vue"],"version":"5.9.3"}
+{"root":["./src/api.ts","./src/env.d.ts","./src/main.ts","./src/router.ts","./src/stores/course.ts","./src/stores/session.ts","./src/utils/markdown.ts","./src/app.vue","./src/views/courseroadmap.vue","./src/views/studentrecords.vue","./src/views/studentworkspace.vue","./src/views/teacherdashboard.vue"],"version":"5.9.3"}

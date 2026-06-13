@@ -113,3 +113,41 @@ def test_practice_feedback_fails_without_live_deepseek_instead_of_fake_score() -
     )
     assert response.status_code == 503
     assert "DeepSeek" in response.json()["detail"]
+
+
+def test_learning_map_exposes_product_tasks() -> None:
+    response = client.get(f"/api/course-lines/{NONGBO_COURSE_ID}/learning-map?student_id=stu-240101")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["courseLineId"] == NONGBO_COURSE_ID
+    assert data["tasks"]
+    assert data["tasks"][0]["title"] == "需求理解"
+    assert data["tasks"][0]["status"] in {"active", "completed", "needs_revision"}
+
+
+def test_task_detail_includes_rubrics() -> None:
+    response = client.get("/api/tasks/task-course-table-design")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "数据库设计"
+    assert data["rubrics"]
+    assert any(rubric["required"] for rubric in data["rubrics"])
+
+
+def test_ai_check_fails_without_live_deepseek_after_real_rag() -> None:
+    client.post("/api/kb/ingest")
+    response = client.post(
+        "/api/ai/check",
+        json={
+            "courseLineId": NONGBO_COURSE_ID,
+            "moduleId": "nongbo-lecture-course-management",
+            "taskId": "task-requirement-understanding",
+            "studentId": "stu-240101",
+            "artifactType": "text",
+            "studentInput": "农科讲堂需要课程列表、课程详情、搜索、推荐课程、专家关联和在线学习。",
+            "attachments": [],
+            "chatHistory": [],
+        },
+    )
+    assert response.status_code == 503
+    assert "DeepSeek" in response.json()["detail"]

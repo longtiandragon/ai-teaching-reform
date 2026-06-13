@@ -91,6 +91,27 @@ p {
   box-shadow: 0 6px 18px rgba(27, 50, 82, 0.1);
 }
 
+.identity-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d8e3f0;
+  border-radius: 8px;
+  background: #fff;
+  padding: 7px 9px;
+  color: #40536f;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.identity-switcher select {
+  max-width: 170px;
+  border: none;
+  color: #17243a;
+  font: inherit;
+  outline: none;
+}
+
 .panel {
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid rgba(39, 58, 87, 0.1);
@@ -126,6 +147,15 @@ p {
 
   .role-tabs {
     width: 100%;
+  }
+
+  .identity-switcher {
+    width: 100%;
+  }
+
+  .identity-switcher select {
+    flex: 1;
+    max-width: none;
   }
 
   .role-tabs a {

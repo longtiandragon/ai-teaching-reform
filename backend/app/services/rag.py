@@ -11,7 +11,7 @@ from backend.app.data.courses import NONGBO_COURSE_ID, SPRINGBOOT_COURSE_ID, get
 from backend.app.models import Citation
 
 
-TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+")
+TOKEN_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*|\d+|[\u4e00-\u9fff]+")
 PROJECT_ROOT = ROOT_DIR / "农博后台管理系统项目1-5-20260609" / "农博后台管理系统项目1-5"
 COURSE_MATERIALS_DIR = ROOT_DIR / "docs" / "course-materials"
 COURSE_STANDARD_DOC = ROOT_DIR / "孙立晔+《Web系统应用开发一》+课程标准_24软.doc"
@@ -132,6 +132,7 @@ class RagService:
         lesson_id: str | None = None,
         course_id: str | None = None,
     ) -> list[Citation]:
+        query = self._expand_query(query)
         top_k = limit or self.settings.rag_top_k
         scored: dict[str, tuple[float, KnowledgeChunk]] = {}
         for score, chunk in self._keyword_rank(query, lesson_id, course_id):
@@ -161,6 +162,8 @@ class RagService:
                     )
                     if not self._allowed(chunk, course_id):
                         continue
+                    if self._score(query, doc) <= 0 and not self._keyword_hits(query, chunk.keywords):
+                        continue
                     vector_score = (1 / (1 + max(float(distance), 0))) + self._context_boost(query, chunk, lesson_id, course_id)
                     current = scored.get(chunk.id, (0, chunk))[0]
                     scored[chunk.id] = (max(current, vector_score), chunk)
@@ -174,7 +177,8 @@ class RagService:
             if item[1].kind not in {"lesson", "practice"}
         ]
         selected = source_ranked if source_ranked else ranked
-        return [self._to_citation(chunk, score) for score, chunk in selected[:top_k] if score > 0]
+        selected = self._filter_concept_results(query, selected)
+        return [self._to_citation(chunk, score, query) for score, chunk in selected[:top_k] if score > 0]
 
     def _try_init_chroma(self, chunks: list[KnowledgeChunk]) -> None:
         try:
@@ -209,11 +213,14 @@ class RagService:
             self._backend = "keyword"
 
     def _keyword_rank(self, query: str, lesson_id: str | None, course_id: str | None) -> list[tuple[float, KnowledgeChunk]]:
-        ranked = [
-            (self._score(query, chunk.text) + self._context_boost(query, chunk, lesson_id, course_id), chunk)
-            for chunk in self._chunks
-            if self._allowed(chunk, course_id)
-        ]
+        ranked = []
+        for chunk in self._chunks:
+            if not self._allowed(chunk, course_id):
+                continue
+            base_score = self._score(query, chunk.text)
+            if base_score <= 0 and not self._keyword_hits(query, chunk.keywords):
+                continue
+            ranked.append((base_score + self._concept_boost(query, chunk.text) + self._context_boost(query, chunk, lesson_id, course_id), chunk))
         ranked.sort(key=lambda item: item[0], reverse=True)
         return ranked
 
@@ -240,11 +247,52 @@ class RagService:
         overlap = sum(min(query_tokens.get(token, 0), text_tokens.get(token, 0)) for token in query_tokens)
         return overlap / math.sqrt(sum(text_tokens.values()))
 
+    def _concept_boost(self, query: str, text: str) -> float:
+        lowered_query = query.lower()
+        lowered_text = text.lower()
+        boost = 0.0
+        if ("ioc" in lowered_query or "控制反转" in lowered_query) and "控制反转" in lowered_text:
+            boost += 2.0
+        if ("di" in lowered_query or "依赖注入" in lowered_query) and "依赖注入" in lowered_text:
+            boost += 1.5
+        if "对象的创建权" in lowered_text or "spring 容器" in lowered_text:
+            boost += 0.8
+        return boost
+
+    def _filter_concept_results(self, query: str, ranked: list[tuple[float, KnowledgeChunk]]) -> list[tuple[float, KnowledgeChunk]]:
+        lowered_query = query.lower()
+        if not re.search(r"\bioc\b|控制反转|依赖注入|\bdi\b", lowered_query):
+            return ranked
+        strong_terms = ("ioc", "控制反转", "依赖注入", "autowired", "bean", "spring 容器")
+        filtered = [
+            item for item in ranked
+            if any(term in f"{item[1].title} {item[1].text}".lower() for term in strong_terms)
+        ]
+        return filtered or ranked
+
     def _tokens(self, text: str) -> dict[str, int]:
         counts: dict[str, int] = {}
         for token in TOKEN_PATTERN.findall(text.lower()):
             counts[token] = counts.get(token, 0) + 1
+            if re.fullmatch(r"[\u4e00-\u9fff]+", token):
+                for size in (2, 3, 4):
+                    for index in range(0, max(0, len(token) - size + 1)):
+                        part = token[index:index + size]
+                        counts[part] = counts.get(part, 0) + 1
         return counts
+
+    def _expand_query(self, query: str) -> str:
+        lowered = query.lower()
+        expansions = []
+        if re.search(r"\bioc\b|控制反转", lowered):
+            expansions.extend(["ioc", "控制反转", "依赖注入", "di", "spring 容器", "Autowired", "Bean"])
+        if re.search(r"\bdi\b|依赖注入", lowered):
+            expansions.extend(["di", "依赖注入", "ioc", "Autowired", "Bean"])
+        if "交付物" in query or "交付" in query:
+            expansions.extend(["交付内容", "验收标准", "项目需求分析", "技术方案规划", "数据库规划", "接口规范"])
+        if "项目1" in query:
+            expansions.extend(["项目1", "需求与技术方案", "需求分析", "技术方案", "数据库规划", "接口规范"])
+        return " ".join([query, *expansions])
 
     def _split_text(self, text: str, size: int) -> list[str]:
         paragraphs = [part.strip() for part in re.split(r"\n{2,}", text) if part.strip()]
@@ -412,16 +460,22 @@ class RagService:
                 return line.removeprefix("# ").strip()
         return fallback
 
-    def _snippet(self, text: str, limit: int | None = None) -> str:
+    def _snippet(self, text: str, limit: int | None = None, query: str = "") -> str:
         limit = limit or self.settings.rag_snippet_size
         compact = " ".join(text.split())
+        lowered = compact.lower()
+        terms = [term for term in ["控制反转", "依赖注入", "ioc", "di", "autowired", "bean"] if term in query.lower()]
+        positions = [lowered.find(term.lower()) for term in terms if lowered.find(term.lower()) >= 0]
+        if positions:
+            start = min(positions)
+            compact = compact[start:]
         return compact[:limit] + ("..." if len(compact) > limit else "")
 
-    def _to_citation(self, chunk: KnowledgeChunk, score: float) -> Citation:
+    def _to_citation(self, chunk: KnowledgeChunk, score: float, query: str = "") -> Citation:
         return Citation(
             title=chunk.title,
             source=chunk.source,
-            snippet=self._snippet(chunk.text),
+            snippet=self._snippet(chunk.text, query=query),
             score=round(float(score), 4),
             course_id=chunk.course_id,
             lesson_id=chunk.lesson_id,

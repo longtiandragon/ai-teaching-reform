@@ -1,0 +1,893 @@
+建议整体架构改成这个：
+
+Vue 3 学生工作台
+        ↓
+FastAPI API 层
+        ↓
+Course Runtime Engine 课程运行时
+        ↓
+LangGraph Tutor Graph AI 助教图
+        ↓
+Hybrid RAG 检索课程资料、项目资料、学生历史记录
+        ↓
+DeepSeek / OpenAI Compatible LLM
+        ↓
+Rubric Engine 评分规则引擎
+        ↓
+Progress Engine 进度与解锁引擎
+        ↓
+Teacher Dashboard 教师看板
+
+核心点是：
+LangGraph 不负责写死每一关；它负责通用教学流程。每一关的内容、目标、评分标准、引用资料由数据库提供。
+
+3. 你的“AI 实训驾驶舱”不要写死步骤，要从课程线读取
+
+前端不要写死：
+
+const steps = [
+  { title: '需求理解' },
+  { title: '数据库设计' },
+  { title: '实体类开发' }
+]
+
+而是请求：
+
+GET /api/course-lines/{courseLineId}/learning-map
+
+后端返回：
+
+{
+  "courseLineId": "nongbo-admin-project",
+  "title": "农宝系统后台管理实训线",
+  "currentModule": {
+    "id": "knowledge-management",
+    "title": "知识管理模块"
+  },
+  "tasks": [
+    {
+      "id": "task_requirement_analysis",
+      "title": "需求理解",
+      "type": "analysis",
+      "status": "completed",
+      "progress": 100
+    },
+    {
+      "id": "task_database_design",
+      "title": "数据库设计",
+      "type": "design",
+      "status": "active",
+      "progress": 40
+    },
+    {
+      "id": "task_entity_design",
+      "title": "实体类开发",
+      "type": "coding",
+      "status": "locked",
+      "progress": 0
+    }
+  ]
+}
+
+前端只负责渲染：
+
+已完成
+进行中
+未解锁
+需要修改
+已退回
+
+这样页面就不是写死的，换成 springboot-course-12 也一样能跑。
+
+4. 数据模型要先定下来
+
+你现在最该补的是这几个核心表或 collection。
+
+课程线表：course_lines
+id
+slug                  // springboot-course-12 / nongbo-admin-project
+title
+description
+target_audience
+tech_stack
+status
+created_at
+updated_at
+
+示例：
+
+{
+  "slug": "nongbo-admin-project",
+  "title": "农宝系统后台管理项目实训",
+  "description": "基于农宝系统知识管理、农产品管理等后台模块，引导学生完成 Spring Boot 后端开发。",
+  "techStack": ["Spring Boot", "MyBatis-Plus", "MySQL", "RESTful API"]
+}
+模块表：learning_modules
+id
+course_line_id
+title
+description
+business_context
+sort_order
+
+示例：
+
+{
+  "courseLineId": "nongbo-admin-project",
+  "title": "知识管理模块",
+  "businessContext": "农宝系统农科讲堂的前置后台模块，用于维护专家、课程内容。"
+}
+任务表：learning_tasks
+id
+module_id
+title
+task_type
+goal
+scenario
+instruction
+required_artifact_type
+difficulty
+sort_order
+unlock_policy
+
+示例：
+
+{
+  "id": "task_course_table_design",
+  "title": "课程表设计",
+  "taskType": "database_design",
+  "goal": "根据农科讲堂课程需求，设计课程表字段。",
+  "scenario": "农科讲堂需要展示推荐课程，并支持搜索、详情、收藏和浏览量排序。",
+  "instruction": "请先设计 course 表字段，不要直接生成完整项目代码。",
+  "requiredArtifactType": "sql_or_field_list",
+  "difficulty": 2
+}
+评分标准表：task_rubrics
+
+这是关键。
+你不想写死逻辑，就把判断标准做成数据。
+
+id
+task_id
+criterion_type
+name
+description
+weight
+required
+rule_config
+
+例如：
+
+[
+  {
+    "criterionType": "keyword",
+    "name": "核心字段完整性",
+    "weight": 30,
+    "required": true,
+    "ruleConfig": {
+      "keywords": ["id", "title", "content", "cover", "expert", "category", "view_count", "create_time"],
+      "minHit": 6
+    }
+  },
+  {
+    "criterionType": "concept",
+    "name": "业务关联理解",
+    "weight": 25,
+    "required": true,
+    "ruleConfig": {
+      "concepts": ["课程与专家关联", "课程分类", "浏览量排序", "课程详情"]
+    }
+  },
+  {
+    "criterionType": "llm_judge",
+    "name": "设计合理性",
+    "weight": 30,
+    "required": false,
+    "ruleConfig": {
+      "judgePrompt": "判断学生设计的课程表是否能支撑农科讲堂课程列表、详情、搜索、收藏和排序。"
+    }
+  },
+  {
+    "criterionType": "anti_shortcut",
+    "name": "防止直接抄完整答案",
+    "weight": 15,
+    "required": false,
+    "ruleConfig": {
+      "forbiddenPatterns": ["完整项目代码", "所有文件", "一键生成"]
+    }
+  }
+]
+
+后端只写一个通用 RubricEngine，根据 criterionType 调对应的检查器。
+
+5. LangGraph 不要按课程写死，要做一个通用 Tutor Graph
+
+你的 LangGraph 可以固定成一张通用图：
+
+load_task_context
+        ↓
+retrieve_learning_evidence
+        ↓
+classify_student_intent
+        ↓
+route:
+   ├── hint_mode
+   ├── explain_mode
+   ├── check_submission_mode
+   ├── reflection_mode
+   └── free_chat_mode
+        ↓
+generate_feedback
+        ↓
+score_with_rubric
+        ↓
+decide_progress
+        ↓
+persist_learning_event
+        ↓
+return_response
+
+注意：
+Graph 是固定的，但 task context 是动态的。
+
+每次请求都带：
+
+{
+  "courseLineId": "nongbo-admin-project",
+  "moduleId": "knowledge-management",
+  "taskId": "task_course_table_design",
+  "studentId": "stu_001",
+  "studentInput": "id, title, content, teacherName"
+}
+
+Graph 先从数据库加载这个任务的目标、要求、评分规则，再去 RAG 检索资料，然后再让 AI 反馈。
+
+6. /api/ai/check 应该独立于 /api/chat
+
+你说的这点非常重要。
+聊天和验收是两种不同契约，不能混在一起。
+
+建议接口这样分：
+
+POST /api/ai/chat       普通 AI 助教对话
+POST /api/ai/check      提交当前任务给 AI 检查
+POST /api/ai/hint       当前任务提示
+POST /api/ai/reflect    学习反思与总结
+POST /api/ai/explain    解释知识点
+
+其中最重要的是：
+
+POST /api/ai/check
+
+请求：
+
+{
+  "courseLineId": "nongbo-admin-project",
+  "moduleId": "knowledge-management",
+  "taskId": "task_course_table_design",
+  "studentId": "stu_001",
+  "artifactType": "database_design",
+  "studentInput": "id, title, content, teacherName",
+  "attachments": [],
+  "chatHistory": []
+}
+
+返回：
+
+{
+  "passed": false,
+  "score": 58,
+  "level": "needs_revision",
+  "reply": "你的字段设计已经包含标题、正文和教师名称，但还不能完整支撑农科讲堂课程业务。",
+  "strengths": [
+    "已经识别出课程标题和课程内容。"
+  ],
+  "problems": [
+    {
+      "type": "missing_field",
+      "message": "缺少封面图字段，课程列表页需要展示封面图。",
+      "suggestion": "可以补充 cover_url。"
+    },
+    {
+      "type": "missing_relation",
+      "message": "缺少专家关联字段，农科讲堂课程需要展示作者/专家。",
+      "suggestion": "可以补充 expert_id 或 teacher_id。"
+    }
+  ],
+  "nextActions": [
+    "补充课程分类字段。",
+    "补充浏览量和发布时间字段。",
+    "说明课程表和专家表之间的关系。"
+  ],
+  "evidence": [
+    {
+      "source": "农宝系统需求规格说明书",
+      "title": "农科讲堂功能需求",
+      "content": "农科讲堂展示推荐专家、课程，农户可以查看推荐专家列表及课程。"
+    }
+  ],
+  "nextTaskUnlocked": false
+}
+
+这个返回就能直接驱动前端页面。
+
+7. passed 和 score 不要完全交给大模型
+
+你说得很对：
+不要让 AI 单独决定是否解锁下一步。
+
+更稳的做法是：
+
+最终得分 = 规则得分 × 60% + AI 评价得分 × 40%
+
+或者：
+
+最终 passed = 必选规则全部通过 && 综合分 >= 70
+
+比如：
+
+def decide_passed(rule_score: int, llm_score: int, critical_failed: bool) -> bool:
+    final_score = int(rule_score * 0.6 + llm_score * 0.4)
+
+    if critical_failed:
+        return False
+
+    return final_score >= 70
+
+这样做有三个好处：
+
+1. demo 现场更稳定
+2. 不会被模型一句话误判
+3. 更像真实教学评价系统
+
+职业技能标准里本身也强调 JavaWeb 开发要能完成数据库、Spring MVC、JSON 交互、Spring/Spring MVC/MyBatis 整合开发等具体能力项，所以这些能力完全可以拆成可检查的 rubric，而不是只靠 AI 主观判断。
+
+8. 你的任务配置可以这样写，不算“写死”
+
+你可以用 YAML / JSON 做课程任务种子数据。
+这不是写死逻辑，而是课程内容配置化。
+
+例如 nongbo-admin-project.yaml：
+
+courseLine:
+  slug: nongbo-admin-project
+  title: 农宝系统后台管理项目实训
+  description: 基于农宝系统需求，完成知识管理、农产品管理等后台模块开发。
+  techStack:
+    - Spring Boot
+    - MyBatis-Plus
+    - MySQL
+    - RESTful API
+
+modules:
+  - slug: knowledge-management
+    title: 知识管理模块
+    businessContext: >
+      农科讲堂前置模块，后台需要维护专家和课程内容，前台用于展示推荐专家、
+      推荐课程、课程详情、搜索和学习观看。
+
+    tasks:
+      - slug: requirement-understanding
+        title: 需求理解
+        type: analysis
+        goal: 理解农科讲堂课程管理模块需要支撑哪些业务功能。
+        instruction: >
+          请根据农宝系统需求，用自己的话说明农科讲堂课程管理至少需要支持哪些功能。
+          不要直接写代码。
+        requiredArtifactType: text
+        unlockPolicy:
+          minScore: 70
+          requireCriticalCriteria: true
+        rubrics:
+          - type: concept
+            name: 功能识别
+            weight: 40
+            required: true
+            config:
+              concepts:
+                - 课程列表
+                - 课程详情
+                - 搜索
+                - 推荐课程
+                - 专家关联
+                - 在线学习或观看
+              minHit: 4
+
+          - type: rag_grounded
+            name: 需求依据
+            weight: 30
+            required: true
+            config:
+              evidenceQueries:
+                - 农科讲堂 推荐专家 课程 搜索 课程详情
+                - 知识管理 专家 课程 内容
+
+          - type: llm_judge
+            name: 表达完整性
+            weight: 30
+            required: false
+            config:
+              judgePrompt: 判断学生是否理解了农科讲堂课程管理的业务边界。
+
+      - slug: course-table-design
+        title: 数据库设计
+        type: database_design
+        goal: 设计 course 表，支撑课程列表、详情、搜索、推荐和排序。
+        instruction: >
+          请设计课程表字段，并说明每个字段的作用。
+          暂时不需要写完整建表 SQL。
+        requiredArtifactType: field_list
+        unlockPolicy:
+          minScore: 75
+          requireCriticalCriteria: true
+        rubrics:
+          - type: keyword
+            name: 核心字段
+            weight: 35
+            required: true
+            config:
+              keywords:
+                - id
+                - title
+                - content
+                - cover
+                - expert
+                - category
+                - view_count
+                - create_time
+              minHit: 6
+
+          - type: concept
+            name: 业务支撑能力
+            weight: 35
+            required: true
+            config:
+              concepts:
+                - 课程与专家关联
+                - 课程列表展示
+                - 课程详情展示
+                - 搜索
+                - 浏览量排序
+              minHit: 3
+
+          - type: llm_judge
+            name: 设计合理性
+            weight: 30
+            required: false
+            config:
+              judgePrompt: 判断该表结构是否能支撑农科讲堂课程管理的基本业务。
+
+这就不是在代码里写死。
+以后老师要新增“农产品管理模块”，你只需要新增 YAML 或在教师看板里配置任务，不需要改 LangGraph。
+
+9. FastAPI 里可以这样组织代码
+
+建议目录结构类似这样：
+
+backend/
+  app/
+    api/
+      routes_ai.py
+      routes_course_lines.py
+      routes_teacher.py
+      routes_student.py
+
+    core/
+      config.py
+      errors.py
+
+    models/
+      course_line.py
+      learning_task.py
+      rubric.py
+      submission.py
+      ai_event.py
+
+    services/
+      course_runtime_service.py
+      progress_service.py
+      rag_service.py
+      rubric_engine.py
+      llm_service.py
+
+    graphs/
+      tutor_graph.py
+      states.py
+      nodes/
+        load_context.py
+        retrieve_evidence.py
+        classify_intent.py
+        generate_hint.py
+        evaluate_submission.py
+        generate_feedback.py
+        decide_progress.py
+        persist_event.py
+
+    schemas/
+      ai.py
+      course.py
+      rubric.py
+      student.py
+
+重点是把几层拆开：
+
+routes 只收请求
+service 负责业务
+graph 负责任务流转
+rubric_engine 负责评分
+rag_service 负责检索
+llm_service 负责调用模型
+
+这样项目会显得很工程化。
+
+10. LangGraph state 可以这样设计
+from typing import Any, Literal, Optional
+from pydantic import BaseModel, Field
+
+
+class EvidenceChunk(BaseModel):
+    source: str
+    title: str
+    content: str
+    score: float | None = None
+
+
+class RubricScore(BaseModel):
+    criterion_id: str
+    name: str
+    passed: bool
+    score: int
+    reason: str
+
+
+class TutorState(BaseModel):
+    course_line_id: str
+    module_id: str
+    task_id: str
+    student_id: str
+
+    student_input: str
+    artifact_type: str | None = None
+    chat_history: list[dict[str, Any]] = Field(default_factory=list)
+
+    task_context: dict[str, Any] = Field(default_factory=dict)
+    rubrics: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: list[EvidenceChunk] = Field(default_factory=list)
+
+    intent: Literal[
+        "chat",
+        "hint",
+        "check_submission",
+        "explain",
+        "reflect"
+    ] = "chat"
+
+    rule_scores: list[RubricScore] = Field(default_factory=list)
+    llm_feedback: dict[str, Any] = Field(default_factory=dict)
+
+    final_score: int = 0
+    passed: bool = False
+    next_task_unlocked: bool = False
+
+    response: dict[str, Any] = Field(default_factory=dict)
+
+Graph 永远处理这份 state。
+至于当前是 SpringBoot 课程，还是农宝后台项目，都从 course_line_id 动态加载。
+
+11. RubricEngine 要通用
+
+你可以先支持这几类 criterion：
+
+keyword          关键词命中
+regex            正则检查
+concept          概念覆盖
+rag_grounded     是否引用/贴合资料
+code_pattern     代码结构检查
+api_design       接口设计检查
+sql_design       数据库设计检查
+llm_judge        大模型主观评价
+anti_shortcut    防止直接整包生成
+
+一个通用入口：
+
+class RubricEngine:
+    async def evaluate(
+        self,
+        student_input: str,
+        rubrics: list[dict],
+        task_context: dict,
+        evidence: list[EvidenceChunk],
+    ) -> tuple[list[RubricScore], int, bool]:
+        scores: list[RubricScore] = []
+
+        for rubric in rubrics:
+            criterion_type = rubric["type"]
+
+            if criterion_type == "keyword":
+                score = self._check_keywords(student_input, rubric)
+
+            elif criterion_type == "regex":
+                score = self._check_regex(student_input, rubric)
+
+            elif criterion_type == "concept":
+                score = await self._check_concepts(student_input, rubric)
+
+            elif criterion_type == "llm_judge":
+                score = await self._llm_judge(student_input, rubric, task_context, evidence)
+
+            elif criterion_type == "anti_shortcut":
+                score = self._check_anti_shortcut(student_input, rubric)
+
+            else:
+                score = RubricScore(
+                    criterion_id=rubric["id"],
+                    name=rubric["name"],
+                    passed=False,
+                    score=0,
+                    reason=f"暂不支持的评分类型：{criterion_type}"
+                )
+
+            scores.append(score)
+
+        final_score = self._weighted_score(scores, rubrics)
+        critical_failed = self._has_critical_failed(scores, rubrics)
+        passed = final_score >= task_context.get("unlockPolicy", {}).get("minScore", 70) and not critical_failed
+
+        return scores, final_score, passed
+
+这样以后新增任务不改主流程，只加 rubric。
+
+12. 前端页面要改成“数据驱动驾驶舱”
+
+你现在的 Vue 页面可以保持产品级，不要做过度花哨的营销风。建议结构是：
+
+┌───────────────────────────────────────────────────────────────┐
+│ 顶部：课程线 / 当前模块 / 学习进度 / AI 状态 / 教师入口          │
+├───────────────┬───────────────────────────────┬───────────────┤
+│ 左侧学习地图   │ 中间任务工作台                  │ 右侧 AI 助教    │
+│               │                               │               │
+│ 动态任务树     │ 当前任务说明                    │ 对话           │
+│ 模块进度       │ 资料依据                        │ 提示           │
+│ 解锁状态       │ 学生提交区                      │ 检查反馈       │
+│ 能力点标签     │ 代码/SQL/文本编辑区              │ 引用来源       │
+│               │ AI 检查结果                     │ 下一步建议     │
+└───────────────┴───────────────────────────────┴───────────────┘
+
+前端组件可以拆成：
+
+StudentWorkbench.vue
+CourseLineSelector.vue
+LearningMap.vue
+TaskWorkspace.vue
+ArtifactEditor.vue
+AICopilotPanel.vue
+RubricScorePanel.vue
+EvidencePanel.vue
+ProgressTimeline.vue
+LearningReportDrawer.vue
+
+重点是：
+
+LearningMap 不写死步骤
+TaskWorkspace 不写死任务说明
+RubricScorePanel 不写死评分项
+EvidencePanel 不写死资料来源
+
+全部从后端返回。
+
+13. 教师看板是你的产品亮点
+
+既然已经不是 demo，就一定要有教师端。
+教师端不用做得特别复杂，但至少要有这几个能力：
+
+1. 查看课程线
+2. 查看模块任务
+3. 编辑任务目标和任务说明
+4. 编辑评分规则 rubric
+5. 查看学生提交记录
+6. 查看 AI 反馈和通过率
+7. 查看哪些任务学生卡住最多
+
+教师看板可以这样展示：
+
+课程线：农宝系统后台管理项目实训
+
+模块通过率：
+知识管理模块：68%
+农产品管理模块：42%
+用户管理模块：75%
+
+学生卡点 Top 5：
+1. 数据库字段设计不完整
+2. Controller 路径不符合 RESTful
+3. Service 和 Mapper 职责混乱
+4. MyBatis-Plus 分页不会写
+5. 需求和代码对应不上
+
+这比单纯“AI 聊天”高级很多。
+
+课程标准里本来就强调混合式教学、课前课中课后、平台发布任务、批改编程作业、讨论答疑和学习数据支撑，所以教师看板能很好地解释你的系统为什么是“AI 教学改革”，而不是普通聊天机器人。
+
+14. 真实错误不要 fake/mock，这是对的
+
+你提到 AGENTS 规则要求 DeepSeek 不可用时返回真实错误，这个很合理。
+现在既然是产品，不建议再做“无 Key mock 回答”。
+
+可以这样处理：
+
+{
+  "success": false,
+  "errorCode": "LLM_PROVIDER_UNAVAILABLE",
+  "message": "DeepSeek 服务不可用，请检查 API Key、网络或模型配置。",
+  "fallbackAvailable": false
+}
+
+前端显示：
+
+AI 服务暂不可用
+请检查后端模型配置或稍后重试
+
+但注意：
+RAG 检索、任务展示、历史记录、rubric 规则检查可以继续运行。
+
+也就是说，即使模型挂了，系统也不至于整个白屏。
+
+15. 你现在最该做的不是找 GitHub，而是补这 5 个 PR
+
+你可以按这个顺序改现有项目。
+
+PR 1：课程线运行时接口
+
+新增：
+
+GET /api/course-lines
+GET /api/course-lines/{id}
+GET /api/course-lines/{id}/learning-map
+GET /api/tasks/{taskId}
+
+目标：
+前端学习地图从后端动态加载。
+
+PR 2：任务与 rubric 数据模型
+
+新增：
+
+learning_tasks
+task_rubrics
+task_resources
+unlock_policies
+
+目标：
+把任务、评分标准、资料引用从代码里挪到数据库。
+
+PR 3：/api/ai/check
+
+新增：
+
+POST /api/ai/check
+
+流程：
+
+加载任务
+加载 rubric
+检索 RAG 证据
+规则评分
+LLM 反馈
+合成最终结果
+保存学习事件
+返回结构化结果
+
+目标：
+让“检查提交”成为稳定产品能力。
+
+PR 4：学生工作台改造成数据驱动
+
+前端改：
+
+左侧学习地图从 API 获取
+中间任务说明从 API 获取
+右侧 AI 助教调用 /api/ai/chat
+提交检查调用 /api/ai/check
+评分面板根据返回结果渲染
+
+目标：
+页面看起来像真实 AI 实训平台。
+
+PR 5：教师看板增加任务编辑和学习分析
+
+新增：
+
+任务配置
+rubric 配置
+学生提交记录
+通过率
+平均分
+高频问题
+
+目标：
+让老师看到“可教学、可管理、可评价”。
+
+16. 你可以这样理解 LangGraph 在这里的价值
+
+不要把 LangGraph 用成简单链式调用：
+
+RAG → Prompt → LLM → 返回
+
+那样体现不出你的项目优势。
+
+你应该让 LangGraph 体现“教学决策流”：
+
+学生是在问问题？
+还是要提示？
+还是提交作业？
+还是要求 AI 直接给完整答案？
+还是要解释报错？
+还是要复盘学习？
+
+不同意图走不同节点：
+
+chat → 正常答疑
+hint → 只给提示，不给完整答案
+check → 严格按 rubric 验收
+explain_error → 解释错误并要求学生修正
+anti_shortcut → 拒绝整包代码，拆成当前任务
+reflect → 生成学习总结
+
+这样老师会感觉你的系统真的在“教学”，不是套了一个聊天框。
+
+17. AI Prompt 要改成“课程运行时 Prompt”
+
+不要写死“农宝系统”在系统 prompt 里。
+系统 prompt 应该是通用的：
+
+你是一个面向软件工程课程的 AI 实训助教。
+
+你正在辅助学生完成一个项目式学习任务。
+你不能一次性替学生完成完整项目。
+你必须根据当前任务目标、评分标准、课程资料和学生提交内容进行引导。
+
+教学原则：
+1. 优先引导学生思考，而不是直接给完整答案。
+2. 只围绕当前任务回答。
+3. 对代码、SQL、接口设计要指出问题、原因和修改建议。
+4. 如果学生要求生成完整项目或完整文件夹，要拒绝，并拆解为当前任务的下一步。
+5. 反馈必须结合任务目标和评分标准。
+6. 如果引用资料，请说明依据来自哪份资料。
+7. 返回结构化 JSON，不要输出多余文本。
+
+然后动态注入：
+
+当前课程线：{course_line.title}
+当前模块：{module.title}
+当前任务：{task.title}
+任务目标：{task.goal}
+任务说明：{task.instruction}
+评分标准：{rubrics}
+RAG 检索资料：{evidence}
+学生提交：{student_input}
+
+这样就可以同时适配：
+
+springboot-course-12
+nongbo-admin-project
+未来其他课程线
+
+
+19. 你现在的核心卖点应该改成这 4 个
+
+不要再说“炫酷页面”。
+你要说：
+
+1. 可配置课程线
+不是写死 demo，支持多课程、多项目、多模块扩展。
+
+2. AI 实训助教
+不是直接生成代码，而是按任务目标和评分标准引导学生完成。
+
+3. RAG 证据增强
+回答和检查基于课程标准、项目需求、职业技能标准和学生历史提交。
+
+4. 过程性评价
+记录学生每次提交、AI 反馈、通过情况、卡点问题，教师端可查看学习分析。
+
+这就是一个产品级方案。
