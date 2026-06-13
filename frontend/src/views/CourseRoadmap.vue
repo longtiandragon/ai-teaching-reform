@@ -98,6 +98,7 @@ import {
   SearchCheck,
 } from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
+import { ElMessage } from 'element-plus'
 
 interface FlowItem {
   title: string
@@ -144,13 +145,18 @@ const flowItems: FlowItem[] = [
 ]
 
 onMounted(async () => {
-  await store.load()
-  const courseId = typeof route.query.course === 'string' ? route.query.course : ''
-  if (courseId && courseId !== store.activeCourseId && store.courses.some((course) => course.id === courseId)) {
-    await store.setCourse(courseId)
+  try {
+    await store.load()
+    const courseId = typeof route.query.course === 'string' ? route.query.course : ''
+    if (courseId && courseId !== store.activeCourseId && store.courses.some((course) => course.id === courseId)) {
+      await store.setCourse(courseId)
+    }
+    await store.loadLearningMap()
+  } catch {
+    ElMessage.error('课程路线加载失败，请确认后端服务已启动。')
+  } finally {
+    loading.value = false
   }
-  await store.loadLearningMap()
-  loading.value = false
 })
 
 async function switchCourse(courseId: string) {
