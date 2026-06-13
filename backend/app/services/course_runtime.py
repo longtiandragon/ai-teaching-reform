@@ -59,7 +59,11 @@ def get_learning_map(course_line_id: str, student_id: str | None = None) -> Lear
 
     for task in tasks:
         row_progress = progress.get(task["id"])
-        if row_progress:
+        if student_id is None:
+            status = "active"
+            score = None
+            task_progress = 0
+        elif row_progress:
             status = row_progress["status"]
             score = row_progress["score"]
             task_progress = row_progress["progress"]

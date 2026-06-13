@@ -69,7 +69,7 @@
             class="lesson-card"
             :class="{ active: lesson.id === activeRouteItem?.id, done: lesson.status === 'completed', locked: lesson.status === 'locked' }"
           >
-            <button type="button" :disabled="lesson.status === 'locked'" @click="enterRouteItem(lesson.id)">
+            <button type="button" @click="enterRouteItem(lesson.id)">
               <span class="lesson-no">{{ String(index + 1).padStart(2, '0') }}</span>
               <span class="lesson-main">
                 <b>{{ lesson.title }}</b>
@@ -411,8 +411,9 @@ function nongboMissionCopy(lesson: { id: string; title: string; source?: string 
 }
 
 .lesson-card.locked button {
-  cursor: not-allowed;
-  opacity: 0.58;
+  cursor: pointer;
+  opacity: 0.76;
+  border-style: dashed;
 }
 
 .lesson-card.active button {

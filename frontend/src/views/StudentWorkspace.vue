@@ -77,7 +77,6 @@
           :key="task.id"
           type="button"
           :class="{ active: task.id === store.activeTaskId, completed: task.status === 'completed', locked: task.status === 'locked' }"
-          :disabled="task.status === 'locked'"
           @click="selectRuntimeTask(task.id)"
         >
           <component :is="taskIcon(task.type)" :size="15" />
@@ -512,11 +511,12 @@ const stepCards = computed<StepCard[]>(() => [
 
 const activeStep = computed(() => stepCards.value.find((step) => step.key === activeStepKey.value) || stepCards.value[0])
 const activeRuntimeTask = computed(() => runtimeTasks.value.find((task) => task.id === store.activeTaskId))
+const activeTaskLocked = computed(() => activeRuntimeTask.value?.status === 'locked')
 const activeTaskStatusLabel = computed(() => {
   const status = activeRuntimeTask.value?.status
   if (status === 'completed') return `${activeRuntimeTask.value?.score ?? 100} 分`
   if (status === 'needs_revision') return '需要修改'
-  if (status === 'locked') return '未解锁'
+  if (status === 'locked') return '预览中'
   return store.task?.required_artifact_type || activeStep.value.badge
 })
 
@@ -624,7 +624,7 @@ const selfCheckScore = computed(() => {
   return { total, correct }
 })
 
-const canSubmitPractice = computed(() => studentCode.value.trim().length > 0 || reflection.value.trim().length > 0)
+const canSubmitPractice = computed(() => !activeTaskLocked.value && (studentCode.value.trim().length > 0 || reflection.value.trim().length > 0))
 
 const readableSources = computed(() => {
   const content = store.lesson?.content || ''
@@ -690,6 +690,9 @@ async function selectRuntimeTask(taskId: string) {
   await store.loadTask(taskId)
   activeStepKey.value = 'read'
   activeLabTab.value = 'patch'
+  if (runtimeTasks.value.find((task) => task.id === taskId)?.status === 'locked') {
+    ElMessage.info('该任务还未解锁，可以先预览目标和评分标准；提交验收需要先通过前一关。')
+  }
 }
 
 function taskIcon(type: string): Component {
@@ -1051,6 +1054,10 @@ async function submitPractice() {
   }
   if (!studentCode.value.trim() && !reflection.value.trim()) {
     ElMessage.warning('请先填写补全片段或实现说明，再提交检查。')
+    return
+  }
+  if (activeTaskLocked.value) {
+    ElMessage.warning('当前任务还未解锁。你可以预览任务，但需要先通过前一关后再提交验收。')
     return
   }
 
@@ -1568,8 +1575,9 @@ function stringifyErrorDetail(value: unknown): string {
 }
 
 .step-ribbon button.locked {
-  cursor: not-allowed;
-  opacity: 0.58;
+  cursor: pointer;
+  opacity: 0.78;
+  border-style: dashed;
 }
 
 .task-card {
