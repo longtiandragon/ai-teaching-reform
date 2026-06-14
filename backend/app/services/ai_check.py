@@ -21,8 +21,9 @@ async def check_learning_task(request: AICheckRequest) -> AICheckResponse:
         None,
         request.courseLineId,
     )
+    # RAG 无结果时不拒绝，降级为纯 AI 评分
     if not citations:
-        raise NoCitationError("当前任务没有检索到可引用资料，已停止 AI 验收。")
+        citations = []
 
     rubric_eval = rubric_engine.evaluate(request.studentInput, task.rubrics, citations)
     task_context = {

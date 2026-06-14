@@ -163,6 +163,47 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS guided_sessions (
+                id TEXT PRIMARY KEY,
+                student_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                course_line_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                steps_json TEXT NOT NULL,
+                conversation_json TEXT NOT NULL,
+                current_step INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS teacher_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                teacher_id TEXT NOT NULL,
+                student_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                analysis_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS published_questions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                question_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                course_line_id TEXT NOT NULL,
+                published_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(question_id, task_id)
+            )
+            """
+        )
         _seed_initial_accounts(conn)
         conn.commit()
 
@@ -175,15 +216,18 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_typ
 
 def _seed_initial_accounts(conn: sqlite3.Connection) -> None:
     classes = [
-        ("class-24-soft-1", "24软件技术1班", "nongbo-admin-project"),
-        ("class-24-soft-2", "24软件技术2班", "springboot-course-12"),
+        ("class-24-soft", "24软件本", "nongbo-admin-project"),
+        ("class-24-apply-2", "24计应2班", "springboot-course-12"),
     ]
     users = [
-        ("stu-240101", "陈明", "student", "class-24-soft-1", "240101"),
-        ("stu-240102", "李欣", "student", "class-24-soft-1", "240102"),
-        ("stu-240103", "王睿", "student", "class-24-soft-1", "240103"),
-        ("stu-240201", "赵晴", "student", "class-24-soft-2", "240201"),
-        ("teacher-001", "孙老师", "teacher", "class-24-soft-1", None),
+        ("stu-240101", "陈明", "student", "class-24-soft", "240101"),
+        ("stu-240102", "李欣", "student", "class-24-soft", "240102"),
+        ("stu-240103", "王睿", "student", "class-24-soft", "240103"),
+        ("stu-240201", "赵晴", "student", "class-24-soft", "240201"),
+        ("stu-240200048", "新同学", "student", "class-24-apply-2", "240200048"),
+        ("teacher-001", "孙老师", "teacher", "class-24-soft", "T2024001"),
+        ("teacher-002", "王老师", "teacher", "class-24-apply-2", "T2024002"),
+        ("teacher-003", "孙老师", "teacher", "class-24-soft", "20240036"),
     ]
     conn.executemany(
         "INSERT OR IGNORE INTO classes(id, name, course_id) VALUES (?, ?, ?)",
@@ -597,3 +641,195 @@ def record_task_submission(
                     (student_id, next_task_id, next_task["course_line_id"], next_task["module_id"], now),
                 )
         conn.commit()
+
+
+# ─── Guided Sessions ───────────────────────────────────────────────────
+
+
+def save_guided_session(
+    *,
+    session_id: str,
+    student_id: str,
+    task_id: str,
+    course_line_id: str,
+    steps: list[dict],
+    conversation: list[dict],
+    current_step: int,
+    status: str,
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO guided_sessions(id, student_id, task_id, course_line_id, status,
+                steps_json, conversation_json, current_step, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id, student_id, task_id, course_line_id, status,
+                json.dumps(steps, ensure_ascii=False),
+                json.dumps(conversation, ensure_ascii=False),
+                current_step, now, now,
+            ),
+        )
+        conn.commit()
+
+
+def get_guided_session(session_id: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM guided_sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+
+
+def update_guided_session(
+    *,
+    session_id: str,
+    conversation: list[dict],
+    current_step: int,
+    status: str,
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE guided_sessions
+            SET conversation_json = ?, current_step = ?, status = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (json.dumps(conversation, ensure_ascii=False), current_step, status, now, session_id),
+        )
+        conn.commit()
+
+
+def list_guided_sessions(student_id: str | None = None, task_id: str | None = None) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        query = "SELECT * FROM guided_sessions WHERE 1=1"
+        params: list[str] = []
+        if student_id:
+            query += " AND student_id = ?"
+            params.append(student_id)
+        if task_id:
+            query += " AND task_id = ?"
+            params.append(task_id)
+        query += " ORDER BY created_at DESC LIMIT 50"
+        return conn.execute(query, params).fetchall()
+
+
+# ─── Teacher Feedback ────────────────────────────────────────────────
+
+
+def save_feedback(teacher_id: str, student_id: str, content: str, analysis_json: str | None = None) -> int:
+    now = datetime.now(UTC).isoformat()
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "INSERT INTO teacher_feedback(teacher_id, student_id, content, analysis_json, created_at) VALUES (?, ?, ?, ?, ?)",
+            (teacher_id, student_id, content, analysis_json, now),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_student_feedback(student_id: str) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT tf.*, u.name as teacher_name
+               FROM teacher_feedback tf
+               LEFT JOIN users u ON u.id = tf.teacher_id
+               WHERE tf.student_id = ?
+               ORDER BY tf.created_at DESC""",
+            (student_id,),
+        ).fetchall()
+
+
+def list_students_by_class(class_id: str | None = None) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        if class_id:
+            return conn.execute(
+                "SELECT * FROM users WHERE role = 'student' AND class_id = ? ORDER BY student_no, name",
+                (class_id,),
+            ).fetchall()
+        return conn.execute(
+            "SELECT * FROM users WHERE role = 'student' ORDER BY class_id, student_no, name"
+        ).fetchall()
+
+
+# ─── Published Questions ────────────────────────────────────────────
+
+
+def publish_question(question_id: str, task_id: str, course_line_id: str, published_by: str) -> int:
+    """Publish a question to a task."""
+    now = datetime.now(UTC).isoformat()
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO published_questions(question_id, task_id, course_line_id, published_by, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(question_id, task_id) DO UPDATE SET
+                course_line_id=excluded.course_line_id,
+                published_by=excluded.published_by,
+                created_at=excluded.created_at
+            """,
+            (question_id, task_id, course_line_id, published_by, now),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def unpublish_question(question_id: str, task_id: str) -> bool:
+    """Remove a published question from a task."""
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "DELETE FROM published_questions WHERE question_id = ? AND task_id = ?",
+            (question_id, task_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_published_questions(task_id: str) -> list[sqlite3.Row]:
+    """Get all published questions for a task."""
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM published_questions WHERE task_id = ? ORDER BY created_at",
+            (task_id,),
+        ).fetchall()
+
+
+def get_published_questions_by_course(course_line_id: str) -> list[sqlite3.Row]:
+    """Get all published questions grouped by task for a course line."""
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM published_questions WHERE course_line_id = ? ORDER BY task_id, created_at",
+            (course_line_id,),
+        ).fetchall()
+
+
+def get_published_question(question_id: str, task_id: str) -> sqlite3.Row | None:
+    """Get a single published question entry."""
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM published_questions WHERE question_id = ? AND task_id = ?",
+            (question_id, task_id),
+        ).fetchone()
+
+
+def get_all_published_for_question(question_id: str) -> list[sqlite3.Row]:
+    """Get all tasks a question is published to."""
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM published_questions WHERE question_id = ?",
+            (question_id,),
+        ).fetchall()
+
+
+def get_all_feedback() -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT tf.*, u.name as teacher_name, s.name as student_name, s.student_no
+               FROM teacher_feedback tf
+               LEFT JOIN users u ON u.id = tf.teacher_id
+               LEFT JOIN users s ON s.id = tf.student_id
+               ORDER BY tf.created_at DESC
+               LIMIT 200"""
+        ).fetchall()

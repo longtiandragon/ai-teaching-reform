@@ -336,6 +336,167 @@ export const api = {
   async deleteQuestion(id: string): Promise<{ deleted: string }> {
     return (await axios.delete(`/api/questions/${id}`)).data
   },
+
+  // ---------- 发布题目到关卡 ----------
+  async publishQuestion(questionId: string, taskId: string, courseLineId: string, publishedBy: string): Promise<{ id: number; ok: boolean }> {
+    return (await axios.post('/api/teacher/questions/publish', { questionId, taskId, courseLineId, publishedBy })).data
+  },
+
+  async unpublishQuestion(questionId: string, taskId: string): Promise<{ ok: boolean }> {
+    return (await axios.delete('/api/teacher/questions/unpublish', { data: { questionId, taskId } })).data
+  },
+
+  async publishedQuestions(taskId: string): Promise<{ questions: Question[]; total: number }> {
+    return (await axios.get(`/api/published-questions/${taskId}`)).data
+  },
+
+  async publishedByCourse(courseLineId: string): Promise<{ tasks: Array<{ taskId: string; questions: Question[] }> }> {
+    return (await axios.get(`/api/published-questions/course/${courseLineId}`)).data
+  },
+
+  async questionPublishedTasks(questionId: string): Promise<{ tasks: Array<{ task_id: string; course_line_id: string }> }> {
+    return (await axios.get(`/api/questions/${questionId}/published-tasks`)).data
+  },
+
+  // ---------- 引导模式 ----------
+  async guidedStart(payload: {
+    courseLineId: string
+    moduleId: string
+    taskId: string
+    studentId: string
+    studentInput: string
+  }): Promise<{
+    sessionId: string
+    intent: string
+    steps: Array<{ title: string; goal: string; knowledge_points: string[] }>
+    currentStep: number
+    message: string
+    status: string
+  }> {
+    return (await axios.post('/api/guided/start', payload)).data
+  },
+  async guidedMessage(payload: {
+    sessionId: string
+    studentId: string
+    message: string
+  }): Promise<{
+    sessionId: string
+    currentStep: number
+    totalSteps: number
+    message: string
+    status: string
+  }> {
+    return (await axios.post('/api/guided/message', payload)).data
+  },
+
+  // ---------- 知识库管理 ----------
+  async kbFiles(courseLineId?: string): Promise<{ files: Array<{ id: string; filename: string; file_type: string; course_line_id: string | null; chunk_count: number; created_at: string }>; total: number }> {
+    const params = courseLineId ? `?course_line_id=${courseLineId}` : ''
+    return (await axios.get(`/api/teacher/kb/files${params}`)).data
+  },
+  async kbDeleteFile(fileId: string): Promise<{ deleted: string }> {
+    return (await axios.delete(`/api/teacher/kb/files/${fileId}`)).data
+  },
+  async kbAssociate(fileId: string, taskId: string): Promise<{ ok: boolean }> {
+    return (await axios.post('/api/teacher/kb/associate', { file_id: fileId, task_id: taskId })).data
+  },
+  async kbDissociate(fileId: string, taskId: string): Promise<{ ok: boolean }> {
+    return (await axios.delete('/api/teacher/kb/associate', { data: { file_id: fileId, task_id: taskId } })).data
+  },
+  async kbTaskFiles(taskId: string): Promise<{ task_id: string; files: Array<{ id: string; filename: string }> }> {
+    return (await axios.get(`/api/teacher/kb/task-files/${taskId}`)).data
+  },
+
+  // ---------- AI 配置 ----------
+  async aiConfig(): Promise<{
+    apiKey: string
+    apiKeyMasked: string
+    baseUrl: string
+    model: string
+    live: boolean
+    timeout: number
+  }> {
+    return (await axios.get('/api/ai/config')).data
+  },
+  async updateAiConfig(payload: {
+    apiKey?: string
+    baseUrl?: string
+    model?: string
+    live?: boolean
+    timeout?: number
+  }): Promise<{
+    apiKey: string
+    apiKeyMasked: string
+    baseUrl: string
+    model: string
+    live: boolean
+    timeout: number
+  }> {
+    return (await axios.put('/api/ai/config', payload)).data
+  },
+  async aiPresets(): Promise<{ presets: Array<{ name: string; baseUrl: string; model: string; description: string }> }> {
+    return (await axios.get('/api/ai/presets')).data
+  },
+  async testAiConnection(): Promise<{ ok: boolean; message: string; response?: string }> {
+    return (await axios.post('/api/ai/test')).data
+  },
+
+  // ---------- 教师 AI 分析 ----------
+  async analyzeStudent(studentId: string): Promise<{
+    studentName: string
+    strengths: string[]
+    weaknesses: string[]
+    improvementPlan: string[]
+    recommendedTasks: string[]
+    summary: string
+  }> {
+    return (await axios.post('/api/teacher/ai/analyze-student', { studentId })).data
+  },
+
+  async analyzeClass(classId: string): Promise<{
+    className: string
+    commonWeaknesses: string[]
+    topStudents: Array<{ id: string; name: string; score: number }>
+    strugglingStudents: Array<{ id: string; name: string; issues: string[] }>
+    recommendations: string[]
+    summary: string
+  }> {
+    return (await axios.post('/api/teacher/ai/analyze-class', { classId })).data
+  },
+
+  async sendFeedback(teacherId: string, studentId: string, content: string, analysis?: any): Promise<{ id: number; ok: boolean }> {
+    return (await axios.post('/api/teacher/feedback/send', { teacherId, studentId, content, analysis })).data
+  },
+
+  async getStudentFeedback(studentId: string): Promise<{
+    feedback: Array<{
+      id: number
+      teacher_id: string
+      student_id: string
+      teacher_name: string
+      content: string
+      analysis?: any
+      created_at: string
+    }>
+  }> {
+    return (await axios.get(`/api/student/feedback/${studentId}`)).data
+  },
+
+  async getAllFeedback(): Promise<{
+    feedback: Array<{
+      id: number
+      teacher_id: string
+      student_id: string
+      teacher_name: string
+      student_name: string
+      student_no: string
+      content: string
+      analysis?: any
+      created_at: string
+    }>
+  }> {
+    return (await axios.get('/api/teacher/feedback/all')).data
+  },
 }
 
 function parseSseEvent(raw: string) {

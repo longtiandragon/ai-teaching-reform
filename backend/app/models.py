@@ -309,3 +309,35 @@ class QuestionCreateRequest(BaseModel):
 class QuestionListResponse(BaseModel):
     questions: list[Question]
     total: int
+
+
+# ---------- 引导模式模型 ----------
+
+class GuidedStartRequest(BaseModel):
+    courseLineId: str
+    moduleId: str
+    taskId: str
+    studentId: str
+    studentInput: str = Field(min_length=1)
+
+
+class GuidedMessageRequest(BaseModel):
+    sessionId: str
+    studentId: str
+    message: str = Field(min_length=1)
+
+
+class GuidedStepResponse(BaseModel):
+    title: str
+    goal: str
+    knowledge_points: list[str] = Field(default_factory=list)
+
+
+class GuidedSessionResponse(BaseModel):
+    sessionId: str
+    intent: str = ""
+    steps: list[GuidedStepResponse] = Field(default_factory=list)
+    currentStep: int = 0
+    totalSteps: int = 0
+    message: str = ""
+    status: str = "waiting"

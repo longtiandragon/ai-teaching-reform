@@ -1,115 +1,193 @@
 <template>
-  <main class="roadmap-page">
-    <div v-if="loading" class="roadmap-loading">
-      <LoaderCircle :size="24" class="spin" />
-      <span>正在加载课程路线...</span>
-    </div>
+  <div class="roadmap-scene">
+    <!-- 噪点纹理 -->
+    <div class="grain-overlay" aria-hidden="true"></div>
 
-    <section class="roadmap-hero">
-      <div class="hero-copy">
-        <p class="eyebrow">Student Learning Route</p>
-        <h2>{{ store.course?.title || 'SpringBoot 与农博项目实训' }}</h2>
-        <p>{{ store.course?.subtitle || '先选择关卡，再进入专注学习工作台。' }}</p>
+    <!-- 顶部：课程概览 -->
+    <header class="roadmap-header">
+      <div class="header-left">
+        <span class="eyebrow-tag">
+          <span class="tag-dot"></span>
+          Learning Route
+        </span>
+        <h1 class="header-title">
+          <span class="title-line">{{ store.course?.title || 'SpringBoot 与农宝项目实训' }}</span>
+        </h1>
+        <p class="header-sub">{{ store.course?.subtitle || '选择关卡，在 AI 引导下完成学习任务。' }}</p>
       </div>
 
-      <div class="hero-actions">
-        <div class="course-tabs" aria-label="课程切换">
+      <div class="header-right">
+        <!-- 课程切换 -->
+        <div class="course-switcher">
           <button
             v-for="course in store.courses"
             :key="course.id"
             type="button"
-            :class="{ active: course.id === store.activeCourseId }"
+            :class="['switch-btn', { active: course.id === store.activeCourseId }]"
             @click="switchCourse(course.id)"
           >
-            <span>{{ courseLabel(course.id) }}</span>
-            <small>{{ course.lessons.length }} 关</small>
+            <span class="switch-label">{{ courseLabel(course.id) }}</span>
+            <span class="switch-count">{{ course.lessons.length }} 关</span>
           </button>
         </div>
-        <button type="button" class="continue-btn" :disabled="!activeRouteItem" @click="enterRouteItem(activeRouteItem?.id)">
-          <PlayCircle :size="18" />
-          继续当前关
+
+        <!-- 继续按钮 -->
+        <button
+          type="button"
+          class="continue-btn"
+          :disabled="!activeRouteItem"
+          @click="enterRouteItem(activeRouteItem?.id)"
+        >
+          <span class="btn-text">继续学习</span>
+          <span class="btn-icon">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
         </button>
       </div>
-    </section>
+    </header>
 
-    <section class="route-layout">
-      <article class="overview-panel">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Overview</p>
-            <h3>学习节奏</h3>
-          </div>
-          <strong>{{ currentRouteIndex + 1 }}/{{ routeItems.length || 1 }}</strong>
+    <!-- 主体：不对称 Bento Grid -->
+    <div class="roadmap-body">
+      <!-- 左侧：学习节奏概览 -->
+      <aside class="rhythm-panel">
+        <div class="panel-header">
+          <span class="eyebrow-tag small">Overview</span>
+          <h3>学习节奏</h3>
         </div>
 
-        <div class="flow-list">
-          <div v-for="item in flowItems" :key="item.title" class="flow-item">
-            <component :is="item.icon" :size="18" />
-            <div>
-              <b>{{ item.title }}</b>
-              <span>{{ item.copy }}</span>
+        <div class="rhythm-steps">
+          <div v-for="(item, i) in flowItems" :key="i" class="rhythm-step">
+            <span class="step-icon">{{ item.icon }}</span>
+            <div class="step-content">
+              <strong>{{ item.title }}</strong>
+              <p>{{ item.desc }}</p>
             </div>
           </div>
         </div>
-      </article>
 
-      <section class="lesson-board">
-        <div class="board-head">
+        <!-- 进度指示器 -->
+        <div class="progress-indicator">
+          <div class="progress-bar">
+            <div class="progress-fill" :style="{ width: progressPercent + '%' }"></div>
+          </div>
+          <span class="progress-text">{{ currentRouteIndex + 1 }} / {{ routeItems.length }}</span>
+        </div>
+      </aside>
+
+      <!-- 右侧：关卡网格 -->
+      <section class="lessons-section">
+        <div class="section-header">
           <div>
-            <p class="eyebrow">Learning Path</p>
+            <span class="eyebrow-tag small">Learning Path</span>
             <h3>关卡路线</h3>
           </div>
-          <span>{{ sourceLabel }}</span>
+          <span class="source-badge">{{ sourceLabel }}</span>
         </div>
 
+        <!-- 不对称网格 -->
         <div class="lesson-grid">
           <article
             v-for="(lesson, index) in routeItems"
             :key="lesson.id"
-            class="lesson-card"
-            :class="{ active: lesson.id === activeRouteItem?.id, done: lesson.status === 'completed', locked: lesson.status === 'locked' }"
+            :class="[
+              'lesson-card',
+              `span-${getSpan(index)}`,
+              {
+                active: lesson.id === activeRouteItem?.id,
+                done: lesson.status === 'completed',
+                locked: lesson.status === 'locked',
+              },
+            ]"
+            @click="enterRouteItem(lesson.id)"
           >
-            <button type="button" @click="enterRouteItem(lesson.id)">
-              <span class="lesson-no">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="lesson-main">
-                <b>{{ lesson.title }}</b>
-                <small>{{ lessonSubtitle(lesson) }}</small>
-              </span>
-              <ArrowRight :size="18" />
-            </button>
+            <div class="card-inner">
+              <div class="card-top">
+                <span class="card-num">{{ String(index + 1).padStart(2, '0') }}</span>
+                <span v-if="lesson.status === 'completed'" class="card-check">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M3 8l4 4 6-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </span>
+                <span v-else-if="lesson.status === 'locked'" class="card-lock">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <rect x="3" y="6" width="8" height="6" rx="1.5" stroke="currentColor" stroke-width="1.2" />
+                    <path d="M5 6V4.5a2 2 0 114 0V6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" />
+                  </svg>
+                </span>
+              </div>
+
+              <div class="card-body">
+                <h4>{{ lesson.title }}</h4>
+                <p>{{ lessonSubtitle(lesson) }}</p>
+              </div>
+
+              <div class="card-footer">
+                <span class="card-tags">
+                  <span v-for="tag in (lesson.tags || []).slice(0, 2)" :key="tag" class="tag">{{ tag }}</span>
+                </span>
+                <span class="card-arrow">
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="M2 7h10M8 3l4 4-4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </span>
+              </div>
+
+              <!-- 已发布题目（可展开） -->
+              <div v-if="publishedMap[lesson.id]?.length" class="card-questions" @click.stop>
+                <button
+                  type="button"
+                  class="questions-toggle"
+                  @click.stop="toggleQuestions(lesson.id)"
+                >
+                  <span class="toggle-icon">{{ expandedQuestions[lesson.id] ? '▼' : '▶' }}</span>
+                  <span>{{ publishedMap[lesson.id].length }} 道已发布题目</span>
+                </button>
+                <div v-if="expandedQuestions[lesson.id]" class="questions-list">
+                  <div
+                    v-for="q in publishedMap[lesson.id]"
+                    :key="q.id"
+                    class="question-item"
+                    @click.stop="enterQuestion(lesson.id, q.id)"
+                  >
+                    <span class="q-type-badge">{{ qTypeShort(q.type) }}</span>
+                    <span class="q-stem-text">{{ q.stem }}</span>
+                    <button class="q-start-btn" @click.stop="enterQuestion(lesson.id, q.id)">开始答题</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </article>
         </div>
       </section>
-    </section>
-  </main>
+    </div>
+
+    <!-- 加载状态 -->
+    <div v-if="loading" class="loading-overlay">
+      <div class="loading-spinner"></div>
+      <span>正在加载课程路线...</span>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, type Component } from 'vue'
+import { computed, onMounted, ref, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  ArrowRight,
-  BookOpenCheck,
-  ClipboardCheck,
-  Code2,
-  LoaderCircle,
-  MessageSquareText,
-  PlayCircle,
-  SearchCheck,
-} from 'lucide-vue-next'
 import { useCourseStore } from '../stores/course'
+import { useSessionStore } from '../stores/session'
 import { ElMessage } from 'element-plus'
-
-interface FlowItem {
-  title: string
-  copy: string
-  icon: Component
-}
+import { api, type Question } from '../api'
 
 const router = useRouter()
 const route = useRoute()
 const store = useCourseStore()
+const session = useSessionStore()
 const loading = ref(true)
+
+// Published questions state
+const publishedMap = ref<Record<string, Question[]>>({})
+const expandedQuestions = reactive<Record<string, boolean>>({})
 
 const lessons = computed(() => store.course?.lessons || [])
 const routeItems = computed(() => {
@@ -124,34 +202,36 @@ const routeItems = computed(() => {
   }
   return lessons.value.map((lesson) => ({ ...lesson, status: lesson.status }))
 })
-const currentLessonIndex = computed(() => {
-  const index = lessons.value.findIndex((lesson) => lesson.id === store.activeLessonId)
-  return index >= 0 ? index : 0
-})
+
 const currentRouteIndex = computed(() => {
   const index = routeItems.value.findIndex((item) => item.id === (store.activeTaskId || store.activeLessonId))
   return index >= 0 ? index : 0
 })
-const activeLesson = computed(() => lessons.value[currentLessonIndex.value] || lessons.value[0])
-const activeRouteItem = computed(() => routeItems.value[currentRouteIndex.value] || routeItems.value[0])
-const sourceLabel = computed(() => store.activeCourseId === 'nongbo-admin-project' ? '农博项目' : 'SpringBoot 12 讲')
 
-const flowItems: FlowItem[] = [
-  { title: '读需求', copy: '先看本关要解决的业务或课程任务。', icon: BookOpenCheck },
-  { title: '找依据', copy: '从课程标准、需求、SQL 和源码中找证据。', icon: SearchCheck },
-  { title: '补代码', copy: '只补关键片段，不生成完整项目。', icon: Code2 },
-  { title: '自测', copy: '做题、看反馈，再提交实现检查。', icon: ClipboardCheck },
-  { title: '复盘', copy: '留下为什么这么做和下一步问题。', icon: MessageSquareText },
+const activeRouteItem = computed(() => routeItems.value[currentRouteIndex.value] || routeItems.value[0])
+const sourceLabel = computed(() => store.activeCourseId === 'nongbo-admin-project' ? '农宝项目' : 'SpringBoot 12 讲')
+const progressPercent = computed(() => {
+  if (!routeItems.value.length) return 0
+  return Math.round(((currentRouteIndex.value + 1) / routeItems.value.length) * 100)
+})
+
+const flowItems = [
+  { icon: '◎', title: '读需求', desc: '理解本关要解决的业务或课程任务。' },
+  { icon: '◈', title: '找依据', desc: '从课程标准、需求、SQL 和源码中找证据。' },
+  { icon: '◉', title: '补代码', desc: '只补关键片段，不生成完整项目。' },
+  { icon: '◎', title: '自测', desc: '做题、看反馈，再提交实现检查。' },
+  { icon: '◈', title: '复盘', desc: '总结为什么这么做和下一步问题。' },
 ]
 
 onMounted(async () => {
   try {
     await store.load()
     const courseId = typeof route.query.course === 'string' ? route.query.course : ''
-    if (courseId && courseId !== store.activeCourseId && store.courses.some((course) => course.id === courseId)) {
+    if (courseId && courseId !== store.activeCourseId && store.courses.some((c) => c.id === courseId)) {
       await store.setCourse(courseId)
     }
-    await store.loadLearningMap()
+    await store.loadLearningMap(session.currentUser?.id)
+    await loadPublishedQuestions()
   } catch {
     ElMessage.error('课程路线加载失败，请确认后端服务已启动。')
   } finally {
@@ -161,31 +241,43 @@ onMounted(async () => {
 
 async function switchCourse(courseId: string) {
   await store.setCourse(courseId)
-  await store.loadLearningMap()
+  await store.loadLearningMap(session.currentUser?.id)
+  await loadPublishedQuestions()
   await router.replace({ path: '/student', query: { course: courseId } })
 }
 
 async function enterRouteItem(itemId?: string) {
   if (!itemId) return
-  if (store.learningMap?.tasks.some((task) => task.id === itemId)) {
-    await store.loadTask(itemId)
-    await router.push({
-      name: 'student-learn',
-      params: { lessonId: store.activeLessonId || activeLesson.value?.id },
-      query: { course: store.activeCourseId, task: itemId },
-    })
-    return
-  }
-  await store.loadLesson(itemId)
-  await router.push({
-    name: 'student-learn',
-    params: { lessonId: itemId },
-    query: { course: store.activeCourseId },
-  })
+  await router.push({ name: 'task-workspace', params: { taskId: itemId } })
+}
+
+// ---------- Published Questions ----------
+async function loadPublishedQuestions() {
+  try {
+    const res = await api.publishedByCourse(store.activeCourseId)
+    const map: Record<string, Question[]> = {}
+    for (const group of res.tasks) {
+      map[group.taskId] = group.questions
+    }
+    publishedMap.value = map
+  } catch { /* ignore */ }
+}
+
+function toggleQuestions(taskId: string) {
+  expandedQuestions[taskId] = !expandedQuestions[taskId]
+}
+
+function enterQuestion(taskId: string, questionId: string) {
+  router.push({ name: 'task-workspace', params: { taskId }, query: { questionId } })
+}
+
+function qTypeShort(type: string): string {
+  const m: Record<string, string> = { single_choice: '单选', multi_choice: '多选', true_false: '判断', short_answer: '简答', code_fill: '填空' }
+  return m[type] || type
 }
 
 function courseLabel(courseId: string) {
-  return courseId === 'nongbo-admin-project' ? '农博项目课' : 'SpringBoot 12 讲'
+  return courseId === 'nongbo-admin-project' ? '农宝项目课' : 'SpringBoot 12 讲'
 }
 
 function lessonSubtitle(lesson: { id: string; title: string; tags: string[]; source?: string }) {
@@ -198,332 +290,652 @@ function lessonSubtitle(lesson: { id: string; title: string; tags: string[]; sou
 
 function nongboMissionCopy(lesson: { id: string; title: string; source?: string }) {
   const title = `${lesson.id} ${lesson.title}`.toLowerCase()
-  const source = (lesson.source || '').toLowerCase()
   if (/需求|架构/.test(title)) return '读懂业务需求，梳理后端分层与接口边界'
   if (/ioc|di|三层/.test(title)) return '从真实 Controller 入手，理解三层调用关系'
   if (/aop|事务|质量/.test(title)) return '结合补贴政策模块，识别日志、事务与异常处理'
-  if (/登录|认证/.test(title) || /auth|login/.test(source)) return '对齐登录接口，理解参数校验、返回结构与令牌'
-  if (/校验|异常/.test(title) || /systemmanagement/.test(source)) return '补全系统管理接口中的校验与异常反馈'
-  if (/文件|上传/.test(title) || /fileupload/.test(source)) return '完成文件上传接口，明确资源地址和安全边界'
-  if (/配置|mybatis-plus/.test(title) || /application/.test(source)) return '检查 Spring Boot 配置与持久层连接'
-  if (/mybatis|crud|农产品/.test(title) || /farmproduce/.test(source)) return '对齐农产品表，完成增删改查关键逻辑'
-  if (/动态|分页|行情|信贷/.test(title) || /creditloan/.test(source)) return '实现条件查询与分页，处理列表筛选场景'
-  if (/综合|知识|内容/.test(title) || /expert/.test(source)) return '串联专家、图文课程与内容管理模块'
+  if (/登录|认证/.test(title)) return '对齐登录接口，理解参数校验、返回结构与令牌'
+  if (/校验|异常/.test(title)) return '补全系统管理接口中的校验与异常反馈'
+  if (/文件|上传/.test(title)) return '完成文件上传接口，明确资源地址和安全边界'
+  if (/配置|mybatis-plus/.test(title)) return '检查 Spring Boot 配置与持久层连接'
+  if (/mybatis|crud|农产品/.test(title)) return '对齐农产品表，完成增删改查关键逻辑'
+  if (/动态|分页|行情|信贷/.test(title)) return '实现条件查询与分页，处理列表筛选场景'
+  if (/综合|知识|内容/.test(title)) return '串联专家、图文课程与内容管理模块'
   if (/扩展|政策|服务/.test(title)) return '迁移同类业务模块，复用接口与服务模式'
-  if (/vue|联调|复盘/.test(title) || /request/.test(source)) return '完成前后端联调，复盘接口路径与返回结构'
-  return '围绕真实农博模块完成一个可验证的后端任务'
+  if (/vue|联调|复盘/.test(title)) return '完成前后端联调，复盘接口路径与返回结构'
+  return '围绕真实农宝模块完成一个可验证的后端任务'
+}
+
+// 不对称网格：交替 span
+function getSpan(index: number): string {
+  const pattern = ['7', '5', '4', '4', '4', '8', '5', '7', '4', '4', '4', '8']
+  return pattern[index % pattern.length]
 }
 </script>
 
 <style scoped>
-.roadmap-page {
-  min-height: calc(100vh - 82px);
-  padding: 18px;
-  background: #edf3f8;
+/* ─── 字体 ─── */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ─── 场景 ─── */
+.roadmap-scene {
+  min-height: 100dvh;
+  background: #FFFBEB;
+  font-family: 'Inter', 'Noto Sans SC', sans-serif;
+  color: #0F172A;
+  padding: 32px 40px 60px;
+  position: relative;
 }
 
-.roadmap-hero,
-.overview-panel,
-.lesson-board {
-  border: 1px solid #dbe5f1;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.97);
-  box-shadow: 0 10px 28px rgba(30, 48, 72, 0.07);
+.grain-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
 }
 
-.roadmap-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 24px;
-  align-items: end;
-  padding: 22px;
+/* ─── 顶部 ─── */
+.roadmap-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 32px;
+  margin-bottom: 48px;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: fadeUp 0.8s cubic-bezier(0.32, 0.72, 0, 1) 0.1s forwards;
 }
 
-.eyebrow {
-  margin: 0 0 6px;
-  color: #2672d9;
+.eyebrow-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px 5px 10px;
+  border-radius: 100px;
+  background: rgba(0, 0, 0, 0.03);
   font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
+  color: #78716C;
+  margin-bottom: 16px;
 }
 
-.hero-copy h2 {
+.eyebrow-tag.small {
+  padding: 3px 10px 3px 8px;
+  font-size: 10px;
+  margin-bottom: 10px;
+}
+
+.tag-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #D97706;
+}
+
+.header-title {
+  margin: 0 0 10px;
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(32px, 4vw, 48px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: #0F172A;
+}
+
+.header-sub {
   margin: 0;
-  color: #17243a;
-  font-size: 26px;
-  line-height: 1.25;
+  font-size: 15px;
+  color: #78716C;
+  line-height: 1.6;
+  max-width: 480px;
 }
 
-.hero-copy p:last-child {
-  max-width: 760px;
-  margin: 10px 0 0;
-  color: #52647f;
-  font-size: 14px;
-  line-height: 1.7;
+.header-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14px;
 }
 
-.hero-actions {
-  display: grid;
-  gap: 10px;
-  min-width: 360px;
-}
-
-.course-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.course-switcher {
+  display: flex;
   gap: 8px;
 }
 
-.course-tabs button,
-.continue-btn,
-.lesson-card button {
-  border: 1px solid #d8e3f0;
-  border-radius: 7px;
-  background: #fff;
-  color: #31425c;
-  cursor: pointer;
-  font-weight: 900;
-}
-
-.course-tabs button {
+.switch-btn {
   display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 11px 12px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 12px 18px;
+  border: 1.5px solid rgba(0, 0, 0, 0.06);
+  border-radius: 14px;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.switch-btn:hover {
+  border-color: rgba(217, 119, 6, 0.2);
+  transform: translateY(-1px);
+}
+
+.switch-btn.active {
+  border-color: #D97706;
+  background: rgba(217, 119, 6, 0.04);
+}
+
+.switch-label {
   font-size: 13px;
+  font-weight: 600;
+  color: #0F172A;
 }
 
-.course-tabs button.active {
-  border-color: #2d7be8;
-  background: #eaf3ff;
-  color: #1d5fbf;
-}
-
-.course-tabs small {
-  color: #74839a;
+.switch-count {
+  font-size: 11px;
+  color: #A8A29E;
 }
 
 .continue-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 42px;
-  background: #2d7be8;
-  color: #fff;
+  gap: 10px;
+  padding: 12px 12px 12px 22px;
+  border: none;
+  border-radius: 100px;
+  background: #0F172A;
+  color: #FFFBEB;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.continue-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+}
+
+.continue-btn:not(:disabled):active {
+  transform: scale(0.98);
 }
 
 .continue-btn:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
-  opacity: 0.6;
 }
 
-.route-layout {
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  gap: 14px;
-  margin-top: 14px;
+.btn-text {
+  font-size: 14px;
+  font-weight: 600;
 }
 
-.overview-panel,
-.lesson-board {
-  overflow: hidden;
-}
-
-.panel-head,
-.board-head {
+.btn-icon {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px;
-  border-bottom: 1px solid #e8eef6;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(255, 251, 235, 0.12);
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-.panel-head h3,
-.board-head h3 {
-  margin: 0;
-  color: #18263d;
+.continue-btn:not(:disabled):hover .btn-icon {
+  transform: translate(2px, -1px);
+}
+
+/* ─── 主体 ─── */
+.roadmap-body {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 32px;
+  opacity: 0;
+  transform: translateY(16px);
+  animation: fadeUp 0.8s cubic-bezier(0.32, 0.72, 0, 1) 0.25s forwards;
+}
+
+/* ─── 左侧面板 ─── */
+.rhythm-panel {
+  padding: 24px;
+  border-radius: 20px;
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  position: sticky;
+  top: 100px;
+  align-self: start;
+}
+
+.panel-header h3 {
+  margin: 0 0 20px;
+  font-family: 'Playfair Display', serif;
   font-size: 18px;
+  font-weight: 600;
+  color: #0F172A;
 }
 
-.panel-head strong,
-.board-head span {
-  border-radius: 999px;
-  padding: 5px 9px;
-  background: #e8f6ef;
-  color: #108556;
-  font-size: 12px;
-  font-weight: 900;
+.rhythm-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 28px;
 }
 
-.flow-list {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
+.rhythm-step {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
 }
 
-.flow-item {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 10px;
+.step-icon {
+  display: flex;
   align-items: center;
-  padding: 12px;
-  border: 1px solid #e1e9f4;
-  border-radius: 7px;
-  background: #f8fbff;
-  color: #2672d9;
-}
-
-.flow-item b,
-.flow-item span {
-  display: block;
-}
-
-.flow-item b {
-  color: #1b2a44;
-  font-size: 14px;
-}
-
-.flow-item span {
-  margin-top: 3px;
-  color: #5d6f87;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(217, 119, 6, 0.08);
+  color: #D97706;
   font-size: 12px;
+  flex-shrink: 0;
+}
+
+.step-content strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0F172A;
+  margin-bottom: 2px;
+}
+
+.step-content p {
+  margin: 0;
+  font-size: 12px;
+  color: #A8A29E;
   line-height: 1.5;
 }
 
+.progress-indicator {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #D97706, #F59E0B);
+  transition: width 0.6s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.progress-text {
+  font-size: 12px;
+  color: #A8A29E;
+  font-weight: 500;
+}
+
+/* ─── 右侧关卡区 ─── */
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-family: 'Playfair Display', serif;
+  font-size: 22px;
+  font-weight: 600;
+  color: #0F172A;
+}
+
+.source-badge {
+  padding: 5px 12px;
+  border-radius: 100px;
+  background: rgba(217, 119, 6, 0.08);
+  color: #D97706;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ─── 不对称网格 ─── */
 .lesson-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  padding: 14px;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 14px;
 }
 
-.lesson-card button {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) 20px;
-  gap: 10px;
-  align-items: center;
-  width: 100%;
-  min-height: 92px;
-  padding: 12px;
-  text-align: left;
-}
+.lesson-card.span-7 { grid-column: span 7; }
+.lesson-card.span-5 { grid-column: span 5; }
+.lesson-card.span-8 { grid-column: span 8; }
+.lesson-card.span-4 { grid-column: span 4; }
 
-.lesson-card button:hover {
-  border-color: #9dc5fb;
-  background: #f5f9ff;
-}
-
-.lesson-card.locked button {
+.lesson-card {
+  border-radius: 18px;
   cursor: pointer;
-  opacity: 0.76;
+  transition: all 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+.lesson-card:nth-child(1) { animation: fadeUp 0.7s cubic-bezier(0.32, 0.72, 0, 1) 0.3s forwards; }
+.lesson-card:nth-child(2) { animation: fadeUp 0.7s cubic-bezier(0.32, 0.72, 0, 1) 0.38s forwards; }
+.lesson-card:nth-child(3) { animation: fadeUp 0.7s cubic-bezier(0.32, 0.72, 0, 1) 0.46s forwards; }
+.lesson-card:nth-child(4) { animation: fadeUp 0.7s cubic-bezier(0.32, 0.72, 0, 1) 0.54s forwards; }
+.lesson-card:nth-child(5) { animation: fadeUp 0.7s cubic-bezier(0.32, 0.72, 0, 1) 0.62s forwards; }
+.lesson-card:nth-child(6) { animation: fadeUp 0.7s cubic-bezier(0.32, 0.72, 0, 1) 0.7s forwards; }
+.lesson-card:nth-child(n+7) { animation: fadeUp 0.7s cubic-bezier(0.32, 0.72, 0, 1) 0.78s forwards; }
+
+.card-inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 140px;
+  padding: 20px;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.015);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  transition: all 0.4s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.lesson-card:hover .card-inner {
+  border-color: rgba(217, 119, 6, 0.15);
+  background: rgba(217, 119, 6, 0.02);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+}
+
+.lesson-card.active .card-inner {
+  border-color: #D97706;
+  background: rgba(217, 119, 6, 0.04);
+}
+
+.lesson-card.done .card-inner {
+  border-color: rgba(125, 211, 168, 0.3);
+  background: rgba(125, 211, 168, 0.04);
+}
+
+.lesson-card.locked {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.lesson-card.locked .card-inner {
   border-style: dashed;
 }
 
-.lesson-card.active button {
-  border-color: #2d7be8;
-  background: #eaf3ff;
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
 }
 
-.lesson-card.done .lesson-no {
-  background: #e6f5ee;
-  color: #108556;
+.card-num {
+  font-size: 12px;
+  font-weight: 700;
+  color: #A8A29E;
+  font-family: 'Inter', monospace;
 }
 
-.lesson-no {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 7px;
-  background: #eef3f8;
-  color: #637188;
-  font-size: 13px;
-  font-weight: 900;
+.lesson-card.active .card-num {
+  color: #D97706;
 }
 
-.lesson-card.active .lesson-no {
-  background: #2d7be8;
-  color: #fff;
+.lesson-card.done .card-num {
+  color: #7DD3A8;
 }
 
-.lesson-main {
-  min-width: 0;
+.card-check {
+  color: #7DD3A8;
 }
 
-.lesson-main b,
-.lesson-main small {
-  display: block;
+.card-lock {
+  color: #D4D4D4;
+}
+
+.card-body h4 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0F172A;
+  line-height: 1.3;
+}
+
+.card-body p {
+  margin: 0;
+  font-size: 12px;
+  color: #A8A29E;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.card-tags {
+  display: flex;
+  gap: 6px;
+}
+
+.tag {
+  padding: 2px 8px;
+  border-radius: 100px;
+  background: rgba(0, 0, 0, 0.03);
+  font-size: 10px;
+  font-weight: 500;
+  color: #A8A29E;
+}
+
+.card-arrow {
+  color: #D4D4D4;
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.lesson-card:hover .card-arrow {
+  transform: translate(2px, -1px);
+  color: #D97706;
+}
+
+/* ─── 加载状态 ─── */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: rgba(255, 251, 235, 0.9);
+  color: #78716C;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid rgba(0, 0, 0, 0.06);
+  border-top-color: #D97706;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ─── 已发布题目 ─── */
+.card-questions {
+  margin-top: 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  padding-top: 8px;
+}
+
+.questions-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: #D97706;
+  padding: 4px 0;
+  font-family: inherit;
+}
+
+.toggle-icon {
+  font-size: 9px;
+  transition: transform 0.2s;
+}
+
+.questions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.question-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(217, 119, 6, 0.03);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.question-item:hover {
+  background: rgba(217, 119, 6, 0.08);
+}
+
+.q-type-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(217, 119, 6, 0.1);
+  color: #D97706;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.q-stem-text {
+  flex: 1;
+  font-size: 12px;
+  color: #0F172A;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.lesson-main b {
-  color: #20314b;
-  font-size: 14px;
-  line-height: 1.35;
+.q-start-btn {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid rgba(217, 119, 6, 0.2);
+  border-radius: 6px;
+  background: transparent;
+  color: #D97706;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
 }
 
-.lesson-main small {
-  display: -webkit-box;
-  margin-top: 5px;
-  color: #74839a;
-  font-size: 11px;
-  line-height: 1.45;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+.q-start-btn:hover {
+  background: rgba(217, 119, 6, 0.1);
+  border-color: #D97706;
 }
 
-.roadmap-loading {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 12px;
-  background: rgba(238, 243, 248, 0.92);
-  color: #2672d9;
-  font-weight: 900;
-}
-
-.spin {
-  animation: spin 0.9s linear infinite;
+/* ─── 动画 ─── */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
-@media (max-width: 1180px) {
+/* ─── 响应式 ─── */
+@media (max-width: 1024px) {
+  .roadmap-scene {
+    padding: 24px 24px 48px;
+  }
+
+  .roadmap-body {
+    grid-template-columns: 1fr;
+  }
+
+  .rhythm-panel {
+    position: static;
+  }
+
   .lesson-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(8, 1fr);
   }
+
+  .lesson-card.span-7,
+  .lesson-card.span-8 { grid-column: span 8; }
+  .lesson-card.span-5 { grid-column: span 5; }
+  .lesson-card.span-4 { grid-column: span 4; }
 }
 
-@media (max-width: 860px) {
-  .roadmap-hero,
-  .route-layout {
+@media (max-width: 768px) {
+  .roadmap-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-right {
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .course-switcher {
+    width: 100%;
+  }
+
+  .switch-btn {
+    flex: 1;
+  }
+
+  .lesson-grid {
     grid-template-columns: 1fr;
   }
 
-  .hero-actions {
-    min-width: 0;
-  }
-}
-
-@media (max-width: 620px) {
-  .roadmap-page {
-    padding: 10px;
-  }
-
-  .lesson-grid,
-  .course-tabs {
-    grid-template-columns: 1fr;
+  .lesson-card.span-7,
+  .lesson-card.span-8,
+  .lesson-card.span-5,
+  .lesson-card.span-4 {
+    grid-column: span 1;
   }
 }
 </style>

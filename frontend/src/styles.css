@@ -1,7 +1,6 @@
+/* 全局基础样式 — 主题变量由 student-theme.css / teacher-theme.css 提供 */
 :root {
-  color: #192335;
-  background: #eef3f8;
-  font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  font-family: 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', 'Segoe UI', sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -14,109 +13,35 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  color: var(--text-primary, #1A1A1A);
+  background: var(--bg-primary, #F8F7F4);
 }
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
-.app-shell {
-  min-height: 100vh;
-  background:
-    linear-gradient(180deg, rgba(44, 123, 229, 0.1), rgba(238, 243, 248, 0) 360px),
-    #eef3f8;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 22px 32px 16px;
-  border-bottom: 1px solid rgba(39, 58, 87, 0.1);
-  background: rgba(255, 255, 255, 0.86);
-  backdrop-filter: blur(16px);
-  position: sticky;
-  top: 0;
-  z-index: 10;
+h1, h2, h3, h4, p {
+  margin-top: 0;
 }
 
 .eyebrow {
   margin: 0 0 6px;
-  color: #2c7be5;
+  color: var(--accent-primary, #FF9D76);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
 }
 
-h1,
-h2,
-h3,
-p {
-  margin-top: 0;
-}
-
-.topbar h1 {
-  margin: 0;
-  font-size: 22px;
-  line-height: 1.25;
-}
-
-.role-tabs {
-  display: flex;
-  gap: 8px;
-  background: #edf3fb;
-  padding: 6px;
-  border-radius: 8px;
-}
-
-.role-tabs a {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: #50627a;
-  text-decoration: none;
-  padding: 9px 13px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.role-tabs a.router-link-active {
-  background: #ffffff;
-  color: #1d5fbf;
-  box-shadow: 0 6px 18px rgba(27, 50, 82, 0.1);
-}
-
-.identity-switcher {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid #d8e3f0;
-  border-radius: 8px;
-  background: #fff;
-  padding: 7px 9px;
-  color: #40536f;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.identity-switcher select {
-  max-width: 170px;
-  border: none;
-  color: #17243a;
-  font: inherit;
-  outline: none;
-}
-
 .panel {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(39, 58, 87, 0.1);
-  border-radius: 8px;
-  box-shadow: 0 16px 40px rgba(27, 50, 82, 0.08);
+  background: var(--bg-card, #fff);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,0.04));
 }
 
 .panel-title {
@@ -125,7 +50,7 @@ p {
   justify-content: space-between;
   gap: 12px;
   padding: 18px 20px;
-  border-bottom: 1px solid rgba(39, 58, 87, 0.08);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .panel-title h2,
@@ -135,31 +60,5 @@ p {
 }
 
 .muted {
-  color: #6b7890;
-}
-
-@media (max-width: 920px) {
-  .topbar {
-    align-items: flex-start;
-    flex-direction: column;
-    padding: 18px;
-  }
-
-  .role-tabs {
-    width: 100%;
-  }
-
-  .identity-switcher {
-    width: 100%;
-  }
-
-  .identity-switcher select {
-    flex: 1;
-    max-width: none;
-  }
-
-  .role-tabs a {
-    flex: 1;
-    justify-content: center;
-  }
+  color: var(--text-secondary, #6B7280);
 }

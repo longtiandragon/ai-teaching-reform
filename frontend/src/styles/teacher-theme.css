@@ -1,0 +1,26 @@
+/* 教师端主题 — 马卡龙暖色 HF 风格 (不允许普通蓝色) */
+[data-theme="teacher"] {
+  /* 底色 */
+  --bg-primary: #F8F7F4;
+  --bg-secondary: #F0EDE8;
+  --bg-card: #FFFFFF;
+
+  /* 主色 — 马卡龙色系 */
+  --accent-primary: #FF9D76;
+  --accent-secondary: #C4A1FF;
+  --accent-tertiary: #7DD3A8;
+  --accent-warning: #FFD166;
+  --accent-danger: #FF8B8B;
+
+  /* 文字 */
+  --text-primary: #1A1A1A;
+  --text-secondary: #6B7280;
+
+  /* 字体 */
+  --font-body: 'Inter', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+}

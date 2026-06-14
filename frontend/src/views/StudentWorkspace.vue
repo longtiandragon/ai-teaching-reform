@@ -521,7 +521,7 @@ const activeTaskStatusLabel = computed(() => {
 })
 
 const sourceLabel = computed(() =>
-  store.activeCourseId === 'nongbo-admin-project' ? '农博项目' : 'SpringBoot 课程资料',
+  store.activeCourseId === 'nongbo-admin-project' ? '农宝项目' : 'SpringBoot 课程资料',
 )
 
 const ragStatus = computed(() => {
@@ -565,7 +565,7 @@ const prompts = computed(() => {
     return [
       { label: '只给提示', mode: 'hint' as PromptMode, text: '我卡在当前模块了，请只给下一步提示，不要生成完整文件。' },
       { label: '解释源码', mode: 'explain' as PromptMode, text: '请结合真实源码解释这个模块的 Controller、Service 和返回结构。' },
-      { label: '检查片段', mode: 'check' as PromptMode, text: '请检查我右侧补全区的实现思路是否符合农博项目代码风格。' },
+      { label: '检查片段', mode: 'check' as PromptMode, text: '请检查我右侧补全区的实现思路是否符合农宝项目代码风格。' },
       { label: '找依据', mode: 'citation' as PromptMode, text: '请列出本模块接口、字段或需求依据，必须给引用。' },
     ]
   }
@@ -579,7 +579,7 @@ const prompts = computed(() => {
 
 const questionPlaceholder = computed(() =>
   store.activeCourseId === 'nongbo-admin-project'
-    ? '围绕当前农博模块提问，AI 只按引用资料辅导...'
+    ? '围绕当前农宝模块提问，AI 只按引用资料辅导...'
     : '围绕当前 SpringBoot 章节提问，AI 只给分步引导...',
 )
 
@@ -633,7 +633,7 @@ const readableSources = computed(() => {
     cards.set('课程标准', { label: '课程标准', copy: lessonStandardUnit(content) || '对应本关的课程标准项目与能力要求' })
   }
   if (/Controller\.java|ServiceImpl\.java|entity\/|mapper\//i.test(content)) {
-    cards.set('真实源码', { label: '真实源码', copy: '来自农博后台的 Controller、Service、Entity 或 Mapper 片段' })
+    cards.set('真实源码', { label: '真实源码', copy: '来自农宝后台的 Controller、Service、Entity 或 Mapper 片段' })
   }
   if (/nb_database\.sql|CREATE TABLE|数据库规划/.test(content)) {
     cards.set('数据库设计', { label: '数据库设计', copy: '使用表结构、字段和数据库规划作为实现依据' })
@@ -778,13 +778,13 @@ function trueFalseOptions(): QuizOption[] {
 function fallbackQuestions(courseId: string, lessonId: string): QuizItem[] {
   if (courseId === 'nongbo-admin-project') {
     return [
-      makeQuiz('fallback-nb-1', '补全农博后台接口时，最先要对齐哪类真实依据？', [
+      makeQuiz('fallback-nb-1', '补全农宝后台接口时，最先要对齐哪类真实依据？', [
         '需求规格、接口路径、数据库字段和已有源码风格',
         '先让 AI 生成完整模块，再慢慢改',
         '只看页面标题，不看后端代码',
         '只保证类名看起来像 Java',
       ], 'A', '真实项目练习必须先找接口、字段和源码依据。'),
-      makeQuiz('fallback-nb-2', '农博项目后端返回值应优先保持哪种风格？', [
+      makeQuiz('fallback-nb-2', '农宝项目后端返回值应优先保持哪种风格？', [
         'com.movie.nbspringproduct.common.Result<T>',
         '直接返回字符串',
         '返回任意 Map，字段随意',
@@ -1125,7 +1125,7 @@ function normalizeAnswer(answer: string) {
 }
 
 function courseLabel(courseId: string) {
-  return courseId === 'nongbo-admin-project' ? '农博项目课' : 'SpringBoot 12 讲'
+  return courseId === 'nongbo-admin-project' ? '农宝项目课' : 'SpringBoot 12 讲'
 }
 
 function citationKindLabel(kind: string) {

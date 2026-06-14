@@ -1,0 +1,42 @@
+/* 学生端主题 — 米白暖橙半像素 */
+[data-theme="student"] {
+  /* 底色 */
+  --bg-primary: #FFFBEB;
+  --bg-secondary: #FEF3C7;
+  --bg-card: #FFFFFF;
+
+  /* 主色 */
+  --accent-primary: #F97316;
+  --accent-secondary: #FB923C;
+  --accent-tertiary: #FDBA74;
+
+  /* 文字 */
+  --text-primary: #1C1917;
+  --text-secondary: #78716C;
+
+  /* 字体 */
+  --font-code: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-body: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+
+  /* 半像素渐变 */
+  --pixel-gradient: linear-gradient(
+    135deg,
+    #FFFBEB 0%, #FEF3C7 25%, #FDE68A 50%, #FDBA74 75%, #F97316 100%
+  );
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px rgba(249, 115, 22, 0.05);
+  --shadow-md: 0 4px 12px rgba(249, 115, 22, 0.08);
+  --shadow-lg: 0 8px 24px rgba(249, 115, 22, 0.1);
+}
+
+/* 隐藏滚动条但保留滚动功能 */
+[data-theme="student"] ::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+[data-theme="student"] {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}

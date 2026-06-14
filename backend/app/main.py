@@ -54,6 +54,7 @@ from backend.app.services.database import (
 from backend.app.services.llm import LLMError, deepseek_client
 from backend.app.services.practice import evaluate_practice
 from backend.app.services.rag import rag_service
+from backend.app.services import kb_manager, ai_config
 
 
 @asynccontextmanager
@@ -191,6 +192,49 @@ async def ai_check(request: AICheckRequest) -> AICheckResponse:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+# ---------- AI 配置 API ----------
+
+@app.get("/api/ai/config")
+async def get_ai_config_endpoint() -> dict:
+    return ai_config.get_ai_config()
+
+
+@app.put("/api/ai/config")
+async def update_ai_config_endpoint(payload: dict) -> dict:
+    return ai_config.update_ai_config(
+        api_key=payload.get("apiKey"),
+        base_url=payload.get("baseUrl"),
+        model=payload.get("model"),
+        live=payload.get("live"),
+        timeout=payload.get("timeout"),
+    )
+
+
+@app.get("/api/ai/presets")
+async def get_ai_presets() -> dict:
+    return {"presets": ai_config.get_presets()}
+
+
+@app.post("/api/ai/test")
+async def test_ai_connection() -> dict:
+    try:
+        from openai import AsyncOpenAI
+        settings = get_settings()
+        client = AsyncOpenAI(api_key=settings.deepseek_api_key, base_url=settings.deepseek_base_url)
+        response = await asyncio.wait_for(
+            client.chat.completions.create(
+                model=settings.deepseek_model,
+                messages=[{"role": "user", "content": "say hello"}],
+                max_tokens=10,
+            ),
+            timeout=10,
+        )
+        text = response.choices[0].message.content or ""
+        return {"ok": True, "message": "连接正常", "response": text[:100]}
+    except Exception as exc:
+        return {"ok": False, "message": f"连接失败: {str(exc)}"}
+
+
 @app.post("/api/chat/stream")
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     async def event_stream():
@@ -287,17 +331,43 @@ async def kb_upload(file: UploadFile = File(...)) -> IngestResponse:
     target = settings.upload_dir / safe_name
     await asyncio.to_thread(target.write_bytes, content_bytes)
 
-    if suffix == ".pdf":
-        try:
-            from pypdf import PdfReader
+    text_suffixes = {
+        ".md", ".markdown", ".txt", ".text", ".log",
+        ".java", ".py", ".js", ".ts", ".vue", ".jsx", ".tsx",
+        ".xml", ".yml", ".yaml", ".json", ".sql", ".html", ".htm",
+        ".css", ".scss", ".less", ".sh", ".bat", ".properties",
+        ".gitignore", ".env", ".toml", ".ini", ".cfg",
+        ".c", ".cpp", ".h", ".hpp", ".go", ".rs", ".rb", ".php",
+    }
 
+    try:
+        if suffix == ".pdf":
+            from pypdf import PdfReader
             content = await asyncio.to_thread(_extract_pdf_text, target)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail="PDF parsing failed") from exc
-    else:
-        content = content_bytes.decode("utf-8", errors="ignore")
+        elif suffix == ".docx":
+            content = await asyncio.to_thread(_extract_docx_text, target)
+        elif suffix in (".xlsx", ".xls"):
+            content = await asyncio.to_thread(_extract_excel_text, target)
+        elif suffix == ".csv":
+            content = await asyncio.to_thread(_extract_csv_text, target)
+        elif suffix in text_suffixes:
+            content = content_bytes.decode("utf-8", errors="ignore")
+        else:
+            content = content_bytes.decode("utf-8", errors="ignore")
+            if not content.strip():
+                raise HTTPException(status_code=400, detail=f"不支持的文件类型: {suffix}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"文件解析失败: {str(exc)}") from exc
 
     chunks = await asyncio.to_thread(rag_service.add_document, target.name, content)
+    file_id = await asyncio.to_thread(
+        kb_manager.register_file,
+        filename=safe_name,
+        file_type=suffix,
+        chunk_count=chunks,
+    )
     return IngestResponse(chunks=chunks, backend=rag_service.backend_name, message="uploaded document indexed")
 
 
@@ -379,11 +449,206 @@ async def course_line_analytics(course_line_id: str) -> dict:
     return analytics_data
 
 
+# ---------- 教师 AI 分析 ----------
+
+from backend.app.services import teacher_ai
+
+@app.post("/api/teacher/ai/analyze-student")
+async def analyze_student_endpoint(payload: dict) -> dict:
+    student_id = payload.get("studentId")
+    if not student_id:
+        raise HTTPException(status_code=400, detail="studentId is required")
+    try:
+        return await teacher_ai.analyze_student_performance(student_id)
+    except Exception as exc:
+        return {"strengths": [], "weaknesses": ["分析失败"], "improvementPlan": ["请检查 AI 配置"], "recommendedTasks": [], "summary": str(exc)[:200]}
+
+
+@app.post("/api/teacher/ai/analyze-class")
+async def analyze_class_endpoint(payload: dict) -> dict:
+    class_id = payload.get("classId")
+    if not class_id:
+        raise HTTPException(status_code=400, detail="classId is required")
+    try:
+        return await teacher_ai.analyze_class_performance(class_id)
+    except Exception as exc:
+        return {"commonWeaknesses": ["分析失败"], "topStudents": [], "strugglingStudents": [], "recommendations": [str(exc)[:200]]}
+
+
+# ---------- 反馈系统 ----------
+
+from backend.app.services.database import save_feedback, get_student_feedback, get_all_feedback
+
+@app.post("/api/teacher/feedback/send")
+async def send_feedback_endpoint(payload: dict) -> dict:
+    teacher_id = payload.get("teacherId")
+    student_id = payload.get("studentId")
+    content = payload.get("content")
+    analysis = payload.get("analysis")
+    if not teacher_id or not student_id or not content:
+        raise HTTPException(status_code=400, detail="teacherId, studentId and content are required")
+    analysis_json = json.dumps(analysis, ensure_ascii=False) if analysis else None
+    feedback_id = await asyncio.to_thread(save_feedback, teacher_id, student_id, content, analysis_json)
+    return {"id": feedback_id, "ok": True}
+
+
+@app.get("/api/student/feedback/{student_id}")
+async def get_feedback_endpoint(student_id: str) -> dict:
+    rows = await asyncio.to_thread(get_student_feedback, student_id)
+    feedback = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["analysis"] = json.loads(item.pop("analysis_json", "null") or "null")
+        except json.JSONDecodeError:
+            item["analysis"] = None
+        feedback.append(item)
+    return {"feedback": feedback}
+
+
+@app.get("/api/teacher/feedback/all")
+async def get_all_feedback_endpoint() -> dict:
+    rows = await asyncio.to_thread(get_all_feedback)
+    feedback = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["analysis"] = json.loads(item.pop("analysis_json", "null") or "null")
+        except json.JSONDecodeError:
+            item["analysis"] = None
+        feedback.append(item)
+    return {"feedback": feedback}
+
+
+# ---------- 知识库文件管理 ----------
+
+@app.get("/api/teacher/kb/files")
+async def kb_files(course_line_id: str | None = None) -> dict:
+    files = await asyncio.to_thread(kb_manager.list_files, course_line_id)
+    return {"files": files, "total": len(files)}
+
+
+@app.delete("/api/teacher/kb/files/{file_id}")
+async def kb_delete_file(file_id: str) -> dict:
+    deleted = await asyncio.to_thread(kb_manager.delete_file, file_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="file not found")
+    return {"deleted": file_id}
+
+
+@app.post("/api/teacher/kb/associate")
+async def kb_associate(payload: dict) -> dict:
+    file_id = payload.get("file_id")
+    task_id = payload.get("task_id")
+    if not file_id or not task_id:
+        raise HTTPException(status_code=400, detail="file_id and task_id required")
+    ok = await asyncio.to_thread(kb_manager.associate_task, file_id, task_id)
+    return {"ok": ok}
+
+
+@app.get("/api/teacher/kb/task-files/{task_id}")
+async def kb_task_files(task_id: str) -> dict:
+    files = await asyncio.to_thread(kb_manager.get_task_files, task_id)
+    return {"task_id": task_id, "files": files}
+
+
+# ---------- 发布题目 ----------
+
+from backend.app.services.database import publish_question, unpublish_question, get_published_questions, get_published_questions_by_course
+
+@app.post("/api/teacher/questions/publish")
+async def publish_question_endpoint(payload: dict) -> dict:
+    question_id = payload.get("questionId")
+    task_id = payload.get("taskId")
+    course_line_id = payload.get("courseLineId")
+    published_by = payload.get("publishedBy")
+    if not question_id or not task_id or not course_line_id or not published_by:
+        raise HTTPException(status_code=400, detail="missing required fields")
+    row_id = await asyncio.to_thread(publish_question, question_id, task_id, course_line_id, published_by)
+    return {"id": row_id, "ok": True}
+
+
+@app.delete("/api/teacher/questions/unpublish")
+async def unpublish_question_endpoint(payload: dict) -> dict:
+    question_id = payload.get("questionId")
+    task_id = payload.get("taskId")
+    if not question_id or not task_id:
+        raise HTTPException(status_code=400, detail="questionId and taskId required")
+    ok = await asyncio.to_thread(unpublish_question, question_id, task_id)
+    return {"ok": ok}
+
+
+@app.get("/api/published-questions/{task_id}")
+async def get_published_questions_endpoint(task_id: str) -> dict:
+    rows = await asyncio.to_thread(get_published_questions, task_id)
+    all_questions = {q.id: q for q in questions_by_course("springboot-course-12") + questions_by_course("nongbo-admin-project")}
+    result = []
+    for row in rows:
+        q = all_questions.get(row["question_id"])
+        if q:
+            result.append(q.model_dump())
+    return {"questions": result}
+
+
+@app.get("/api/published-questions/course/{course_line_id}")
+async def get_published_by_course_endpoint(course_line_id: str) -> dict:
+    rows = await asyncio.to_thread(get_published_questions_by_course, course_line_id)
+    all_questions = {q.id: q for q in questions_by_course("springboot-course-12") + questions_by_course("nongbo-admin-project")}
+    tasks: dict[str, list] = {}
+    for row in rows:
+        task_id = row["task_id"]
+        q = all_questions.get(row["question_id"])
+        if q:
+            tasks.setdefault(task_id, []).append(q.model_dump())
+    return {"tasks": [{"taskId": tid, "questions": qs} for tid, qs in tasks.items()]}
+
+
 def _extract_pdf_text(target: Path) -> str:
     from pypdf import PdfReader
-
     reader = PdfReader(str(target))
     return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+def _extract_docx_text(target: Path) -> str:
+    from docx import Document
+    doc = Document(str(target))
+    lines = []
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if text:
+            lines.append(text)
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            if cells:
+                lines.append(" | ".join(cells))
+    return "\n".join(lines)
+
+
+def _extract_excel_text(target: Path) -> str:
+    from openpyxl import load_workbook
+    wb = load_workbook(str(target), read_only=True, data_only=True)
+    lines = []
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        lines.append(f"=== Sheet: {sheet_name} ===")
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c) if c is not None else "" for c in row]
+            if any(cells):
+                lines.append(" | ".join(cells))
+    wb.close()
+    return "\n".join(lines)
+
+
+def _extract_csv_text(target: Path) -> str:
+    import csv
+    lines = []
+    with open(str(target), "r", encoding="utf-8", errors="ignore") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if any(cell.strip() for cell in row):
+                lines.append(" | ".join(row))
+    return "\n".join(lines)
 
 
 def _sse(event: str, data: dict) -> str:

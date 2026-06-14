@@ -144,7 +144,7 @@ class DeepSeekClient:
             {
                 "role": "system",
                 "content": (
-                    f"你是 SpringBoot 与农博后台管理系统课程的 AI 助教，当前回答对象是{role}。"
+                    f"你是 SpringBoot 与农宝后台管理系统课程的 AI 助教，当前回答对象是{role}。"
                     "必须只依据用户提供的引用资料回答；如果引用资料不足，要明确说资料不足，不能编造。"
                     "回答使用 Markdown，先给结论，再给依据和下一步。"
                 ),

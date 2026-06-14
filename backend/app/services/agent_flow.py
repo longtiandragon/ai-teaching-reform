@@ -29,10 +29,18 @@ class TeachingAgentState(TypedDict, total=False):
 
 
 TECH_TERMS = {
-    "ioc", "di", "aop", "bean", "spring", "springboot", "controller", "service", "mapper",
+    "ioc", "di", "aop", "bean", "spring", "springboot", "springboot", "controller", "service", "mapper",
     "mybatis", "mysql", "sql", "rest", "api", "jwt", "token", "session", "vue", "pinia",
+    "maven", "java", "jdbc", "crud", "orm", "http", "json", "xml", "html", "css", "javascript",
+    "git", "docker", "redis", "nginx", "tomcat", "linux", "windows", "ide", "idea", "vscode",
+    "pom", "gradle", "jar", "war", "servlet", "filter", "interceptor", "annotation", "thread",
+    "class", "object", "interface", "abstract", "extends", "implements", "override", "static",
+    "final", "public", "private", "protected", "return", "void", "string", "integer", "list",
+    "map", "set", "array", "exception", "try", "catch", "throw", "finally", "import", "package",
     "事务", "注入", "依赖", "控制反转", "切面", "日志", "接口", "字段", "数据库", "表",
     "登录", "认证", "分页", "查询", "新增", "修改", "删除", "上传", "配置", "异常",
+    "前端", "后端", "框架", "组件", "路由", "状态", "请求", "响应", "缓存", "会话",
+    "编译", "打包", "部署", "测试", "调试", "运行", "启动", "关闭", "连接", "断开",
 }
 
 
@@ -60,6 +68,11 @@ def is_low_information_question(question: str) -> bool:
         return True
     if re.fullmatch(r"(test|测试|1+|12+|123+|a+|你好|hello|hi)", text, re.I):
         return True
+
+    # long questions (5+ words) pass directly
+    word_count = len(re.findall(r"[a-z][a-z0-9_+-]*|[一-鿿]+", text))
+    if word_count >= 5:
+        return False
 
     chinese_chars = re.findall(r"[\u4e00-\u9fff]", text)
     latin_tokens = re.findall(r"[a-z][a-z0-9_+-]*", text)

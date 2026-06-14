@@ -121,15 +121,15 @@ def test_learning_map_exposes_product_tasks() -> None:
     data = response.json()
     assert data["courseLineId"] == NONGBO_COURSE_ID
     assert data["tasks"]
-    assert data["tasks"][0]["title"] == "需求理解"
+    assert data["tasks"][0]["title"] == "业务需求梳理"
     assert data["tasks"][0]["status"] in {"active", "completed", "needs_revision"}
 
 
 def test_task_detail_includes_rubrics() -> None:
-    response = client.get("/api/tasks/task-course-table-design")
+    response = client.get("/api/tasks/task-requirement-understanding")
     assert response.status_code == 200
     data = response.json()
-    assert data["title"] == "数据库设计"
+    assert data["title"] == "业务需求梳理"
     assert data["rubrics"]
     assert any(rubric["required"] for rubric in data["rubrics"])
 
@@ -140,7 +140,7 @@ def test_ai_check_fails_without_live_deepseek_after_real_rag() -> None:
         "/api/ai/check",
         json={
             "courseLineId": NONGBO_COURSE_ID,
-            "moduleId": "nongbo-lecture-course-management",
+            "moduleId": "nongbo-m1-requirements",
             "taskId": "task-requirement-understanding",
             "studentId": "stu-240101",
             "artifactType": "text",

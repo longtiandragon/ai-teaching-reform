@@ -23,19 +23,28 @@ export const useSessionStore = defineStore('session', {
         const data = await api.sessionBootstrap()
         this.users = data.users
         this.classes = data.classes
-        const saved = localStorage.getItem(STORAGE_KEY)
-        const candidate = this.users.find((user) => user.id === saved) || this.users.find((user) => user.role === 'student') || this.users[0]
-        if (candidate) {
-          this.currentUser = await api.login(candidate.id)
-          localStorage.setItem(STORAGE_KEY, this.currentUser.id)
-        }
       } finally {
         this.loading = false
       }
     },
-    async switchUser(userId: string) {
+    async login(userId: string) {
       this.currentUser = await api.login(userId)
       localStorage.setItem(STORAGE_KEY, userId)
+    },
+    async restoreSession() {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved && this.users.length) {
+        const user = this.users.find((u) => u.id === saved)
+        if (user) {
+          this.currentUser = await api.login(user.id)
+          return true
+        }
+      }
+      return false
+    },
+    logout() {
+      this.currentUser = null
+      localStorage.removeItem(STORAGE_KEY)
     },
   },
 })
