@@ -1,5 +1,16 @@
 import axios from 'axios'
 
+const TOKEN_KEY = 'web-training-access-token'
+
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) {
+    config.headers = config.headers || {}
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
 export interface Citation {
   title: string
   source: string
@@ -40,6 +51,7 @@ export interface UserInfo {
   class_id?: string | null
   class_name?: string | null
   student_no?: string | null
+  username?: string | null
 }
 
 export interface LearningRecord {
@@ -48,6 +60,7 @@ export interface LearningRecord {
   class_id?: string | null
   course_id: string
   lesson_id: string
+  lesson_title?: string | null
   kind: string
   score?: number | null
   correct?: number | null
@@ -204,8 +217,8 @@ export const api = {
   async sessionBootstrap(): Promise<{ classes: ClassInfo[]; users: UserInfo[] }> {
     return (await axios.get('/api/session/bootstrap')).data
   },
-  async login(user_id: string): Promise<UserInfo> {
-    return (await axios.post('/api/session/login', { user_id })).data
+  async login(account: string, password: string): Promise<{ user: UserInfo; access_token: string; token_type: string }> {
+    return (await axios.post('/api/session/login', { account, password })).data
   },
   async lesson(courseId: string, lessonId: string): Promise<Lesson> {
     return (await axios.get(`/api/courses/${courseId}/lessons/${lessonId}`)).data.lesson
@@ -233,6 +246,17 @@ export const api = {
     chatHistory?: Record<string, unknown>[]
   }): Promise<AICheckResult> {
     return (await axios.post('/api/ai/check', payload)).data
+  },
+  async recordLocalCheck(payload: {
+    courseLineId: string
+    moduleId: string
+    taskId: string
+    studentId: string
+    artifactType?: string
+    studentInput: string
+    result: AICheckResult
+  }): Promise<{ ok: boolean }> {
+    return (await axios.post('/api/ai/local-check-record', payload)).data
   },
   async aiTaskChat(payload: {
     courseLineId: string
@@ -311,6 +335,15 @@ export const api = {
   async ingest() {
     return (await axios.post('/api/kb/ingest')).data
   },
+  async uploadKnowledgeFile(payload: { file: File; courseLineId?: string; taskId?: string }) {
+    const formData = new FormData()
+    formData.append('file', payload.file)
+    if (payload.courseLineId) formData.append('courseLineId', payload.courseLineId)
+    if (payload.taskId) formData.append('taskId', payload.taskId)
+    return (await axios.post('/api/kb/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })).data
+  },
   async analytics() {
     return (await axios.get('/api/teacher/analytics')).data
   },
@@ -336,6 +369,9 @@ export const api = {
   async deleteQuestion(id: string): Promise<{ deleted: string }> {
     return (await axios.delete(`/api/questions/${id}`)).data
   },
+  async generateQuestionExplanation(id: string): Promise<Question> {
+    return (await axios.post(`/api/questions/${id}/generate-explanation`)).data
+  },
 
   // ---------- 发布题目到关卡 ----------
   async publishQuestion(questionId: string, taskId: string, courseLineId: string, publishedBy: string): Promise<{ id: number; ok: boolean }> {
@@ -354,10 +390,6 @@ export const api = {
     return (await axios.get(`/api/published-questions/course/${courseLineId}`)).data
   },
 
-  async questionPublishedTasks(questionId: string): Promise<{ tasks: Array<{ task_id: string; course_line_id: string }> }> {
-    return (await axios.get(`/api/questions/${questionId}/published-tasks`)).data
-  },
-
   // ---------- 引导模式 ----------
   async guidedStart(payload: {
     courseLineId: string
@@ -365,28 +397,61 @@ export const api = {
     taskId: string
     studentId: string
     studentInput: string
+    questionId?: string
+    codeDraft?: string
   }): Promise<{
     sessionId: string
     intent: string
     steps: Array<{ title: string; goal: string; knowledge_points: string[] }>
     currentStep: number
+    totalSteps: number
+    currentStepTitle?: string
     message: string
+    citations: Citation[]
     status: string
   }> {
     return (await axios.post('/api/guided/start', payload)).data
+  },
+  async streamGuidedStart(
+    payload: {
+      courseLineId: string
+      moduleId: string
+      taskId: string
+      studentId: string
+      studentInput: string
+      questionId?: string
+      codeDraft?: string
+    },
+    handlers: GuidedStreamHandlers,
+  ) {
+    await streamSse('/api/guided/start/stream', payload, handlers)
   },
   async guidedMessage(payload: {
     sessionId: string
     studentId: string
     message: string
+    codeDraft?: string
   }): Promise<{
     sessionId: string
     currentStep: number
     totalSteps: number
+    currentStepTitle?: string
     message: string
+    citations: Citation[]
     status: string
   }> {
     return (await axios.post('/api/guided/message', payload)).data
+  },
+  async streamGuidedMessage(
+    payload: {
+      sessionId: string
+      studentId: string
+      message: string
+      codeDraft?: string
+    },
+    handlers: GuidedStreamHandlers,
+  ) {
+    await streamSse('/api/guided/message/stream', payload, handlers)
   },
 
   // ---------- 知识库管理 ----------
@@ -497,6 +562,47 @@ export const api = {
   }> {
     return (await axios.get('/api/teacher/feedback/all')).data
   },
+}
+
+interface GuidedStreamHandlers {
+  onStatus?: (data: any) => void
+  onMetadata?: (data: any) => void
+  onDelta?: (text: string) => void
+  onDone?: (data: any) => void
+  onError?: (data: any) => void
+}
+
+async function streamSse(url: string, payload: Record<string, unknown>, handlers: GuidedStreamHandlers) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => '')
+    throw new Error(text || `stream request failed: ${response.status}`)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() || ''
+    for (const eventText of events) {
+      const parsed = parseSseEvent(eventText)
+      if (!parsed) continue
+      if (parsed.event === 'status') handlers.onStatus?.(parsed.data)
+      if (parsed.event === 'metadata') handlers.onMetadata?.(parsed.data)
+      if (parsed.event === 'delta') handlers.onDelta?.(parsed.data.text || '')
+      if (parsed.event === 'done') handlers.onDone?.(parsed.data)
+      if (parsed.event === 'error') handlers.onError?.(parsed.data)
+    }
+  }
 }
 
 function parseSseEvent(raw: string) {

@@ -14,7 +14,7 @@ COURSE_ID = SPRINGBOOT_COURSE_ID
 COURSE_MATERIALS_DIR = ROOT_DIR / "docs" / "course-materials"
 COURSE_STANDARD_DOC = ROOT_DIR / "孙立晔+《Web系统应用开发一》+课程标准_24软.doc"
 ROOT_NONGBO_SQL = ROOT_DIR / "nb_database.sql"
-PROJECT_ROOT = ROOT_DIR / "农博后台管理系统项目1-5-20260609" / "农博后台管理系统项目1-5"
+PROJECT_ROOT = ROOT_DIR / "农宝后台管理系统项目1-5-20260609" / "农宝后台管理系统项目1-5"
 PROJECT_DOC_DIR = PROJECT_ROOT / "项目1-需求与技术方案"
 PROJECT_BACKEND = PROJECT_ROOT / "项目5-完整前后端对接" / "nbspringproduct"
 PROJECT_FRONTEND = PROJECT_ROOT / "项目5-完整前后端对接" / "nbvueproject"
@@ -432,10 +432,11 @@ def _build_nongbo_lessons() -> list[LessonDetail]:
 def _project_lesson(module: dict) -> LessonDetail:
     files = [path for path in module["files"] if path.exists()]
     docs = [path for path in module.get("docs", []) if path.exists()]
+    rag_docs = [path for path in docs if path.resolve() != COURSE_STANDARD_DOC.resolve()]
     code_path = files[0] if files else None
     code = _read_text(code_path) if code_path else ""
-    doc_excerpt = "\n\n".join(_plain_excerpt(_read_knowledge_text(path), 600) for path in docs)
-    source_list = "\n".join(f"- {_rel(path)}" for path in [*files, *docs])
+    doc_excerpt = "\n\n".join(_plain_excerpt(_read_knowledge_text(path), 600) for path in rag_docs)
+    source_list = "\n".join(f"- {_rel(path)}" for path in [*files, *rag_docs])
     template = _project_template(code, code_path)
     standard_unit = module.get("standard_unit", "")
     objectives = module.get("objectives") or [

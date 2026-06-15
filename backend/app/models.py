@@ -93,10 +93,18 @@ class UserInfo(BaseModel):
     class_id: str | None = None
     class_name: str | None = None
     student_no: str | None = None
+    username: str | None = None
 
 
 class SessionLoginRequest(BaseModel):
-    user_id: str
+    account: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class SessionLoginResponse(BaseModel):
+    user: UserInfo
+    access_token: str
+    token_type: str = "bearer"
 
 
 class SessionBootstrapResponse(BaseModel):
@@ -120,6 +128,7 @@ class LearningRecord(BaseModel):
     class_id: str | None = None
     course_id: str
     lesson_id: str
+    lesson_title: str | None = None
     kind: str
     score: int | None = None
     correct: int | None = None
@@ -135,6 +144,7 @@ class IngestResponse(BaseModel):
     chunks: int
     backend: str
     message: str
+    fileId: str | None = None
 
 
 class HealthResponse(BaseModel):
@@ -319,12 +329,15 @@ class GuidedStartRequest(BaseModel):
     taskId: str
     studentId: str
     studentInput: str = Field(min_length=1)
+    questionId: str | None = None
+    codeDraft: str | None = None
 
 
 class GuidedMessageRequest(BaseModel):
     sessionId: str
     studentId: str
     message: str = Field(min_length=1)
+    codeDraft: str | None = None
 
 
 class GuidedStepResponse(BaseModel):
@@ -339,5 +352,7 @@ class GuidedSessionResponse(BaseModel):
     steps: list[GuidedStepResponse] = Field(default_factory=list)
     currentStep: int = 0
     totalSteps: int = 0
+    currentStepTitle: str | None = None
     message: str = ""
+    citations: list[Citation] = Field(default_factory=list)
     status: str = "waiting"

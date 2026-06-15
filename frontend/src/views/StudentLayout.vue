@@ -32,6 +32,7 @@
             <span>学习记录</span>
           </RouterLink>
           <RouterLink
+            v-if="false"
             to="/student/ai-config"
             class="nav-pill"
             @click="triggerFlow"

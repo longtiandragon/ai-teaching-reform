@@ -88,7 +88,7 @@ def get_ai_config() -> dict:
     env = _read_env()
     api_key = env.get("DEEPSEEK_API_KEY", "")
     return {
-        "apiKey": api_key,
+        "apiKey": "",
         "apiKeyMasked": _mask_key(api_key),
         "baseUrl": env.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         "model": env.get("DEEPSEEK_MODEL", "deepseek-v4-flash"),
@@ -107,7 +107,7 @@ def update_ai_config(
     """更新 AI 配置。"""
     env = _read_env()
 
-    if api_key is not None:
+    if api_key:
         env["DEEPSEEK_API_KEY"] = api_key
     if base_url is not None:
         env["DEEPSEEK_BASE_URL"] = base_url

@@ -20,6 +20,7 @@ async def check_learning_task(request: AICheckRequest) -> AICheckResponse:
         5,
         None,
         request.courseLineId,
+        request.taskId,
     )
     # RAG 无结果时不拒绝，降级为纯 AI 评分
     if not citations:

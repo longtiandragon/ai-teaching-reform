@@ -304,7 +304,7 @@ onMounted(async () => {
 async function loadConfig() {
   try {
     config.value = await api.aiConfig()
-    form.apiKey = config.value.apiKey
+    form.apiKey = ''
     form.baseUrl = config.value.baseUrl
     form.model = config.value.model
     form.timeout = config.value.timeout

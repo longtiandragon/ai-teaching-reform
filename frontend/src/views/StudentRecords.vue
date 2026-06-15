@@ -62,7 +62,7 @@
           </div>
 
           <div class="record-content">
-            <h4>{{ lessonLabel(record.lesson_id) }}</h4>
+            <h4>{{ lessonLabel(record) }}</h4>
             <p>{{ record.kind === 'self_check' ? `${record.correct}/${record.total} 题正确` : shortText(record.feedback || record.notes || '') }}</p>
             <small>{{ formatTime(record.created_at) }}</small>
           </div>
@@ -73,7 +73,7 @@
           </div>
 
           <RouterLink
-            :to="{ name: 'task-workspace', params: { taskId: record.lesson_id } }"
+            :to="{ name: 'task-workspace', params: { taskId: record.lesson_id }, query: { recordId: record.id } }"
             class="record-link"
           >
             查看
@@ -201,7 +201,9 @@ async function loadFeedback() {
   }
 }
 
-function lessonLabel(lessonId: string) {
+function lessonLabel(record: LearningRecord) {
+  if (record.lesson_title) return record.lesson_title
+  const lessonId = record.lesson_id
   for (const course of store.courses) {
     const lesson = course.lessons.find((l) => l.id === lessonId)
     if (lesson) return lesson.title

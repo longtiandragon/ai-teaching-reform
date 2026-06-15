@@ -77,7 +77,8 @@
             <div class="form-field">
               <label>班级</label>
               <div class="select-wrapper">
-                <select v-model="selectedClassId" :disabled="!filteredClasses.length">
+                <input v-model.trim="account" class="login-input" autocomplete="username" placeholder="学生填学号，教师填账号/教师号" />
+                <select v-if="false" v-model="selectedClassId" :disabled="!filteredClasses.length">
                   <option value="" disabled>选择班级</option>
                   <option v-for="cls in filteredClasses" :key="cls.id" :value="cls.id">
                     {{ cls.name }}
@@ -93,7 +94,8 @@
             <div class="form-field">
               <label>用户</label>
               <div class="select-wrapper">
-                <select v-model="selectedUserId" :disabled="!filteredUsers.length">
+                <input v-model="password" class="login-input" type="password" autocomplete="current-password" placeholder="默认演示密码 123456" @keydown.enter.prevent="handleLogin" />
+                <select v-if="false" v-model="selectedUserId" :disabled="!filteredUsers.length">
                   <option value="" disabled>选择用户</option>
                   <option v-for="user in filteredUsers" :key="user.id" :value="user.id">
                     {{ user.student_no ? `${user.student_no} · ` : '' }}{{ user.name }}
@@ -109,7 +111,7 @@
             <button
               type="button"
               class="submit-btn"
-              :disabled="!selectedUserId || loading"
+              :disabled="!account || !password || loading"
               @click="handleLogin"
             >
               <span class="btn-text">{{ loading ? '进入中...' : '进入学习' }}</span>
@@ -144,6 +146,8 @@ const session = useSessionStore()
 const selectedRole = ref<'student' | 'teacher'>('student')
 const selectedClassId = ref('')
 const selectedUserId = ref('')
+const account = ref('')
+const password = ref('')
 const loading = ref(false)
 
 // 切换角色或班级时，重置用户选择
@@ -188,10 +192,10 @@ onMounted(async () => {
 })
 
 async function handleLogin() {
-  if (!selectedUserId.value) return
+  if (!account.value || !password.value) return
   loading.value = true
   try {
-    await session.login(selectedUserId.value)
+    await session.login(account.value, password.value)
     const target = session.currentUser?.role === 'teacher' ? '/teacher' : '/student'
     router.push(target)
   } finally {
@@ -519,6 +523,23 @@ async function handleLogin() {
 }
 
 .select-wrapper select:focus {
+  border-color: #C4956A;
+}
+
+.login-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1.5px solid rgba(0, 0, 0, 0.06);
+  border-radius: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #FFFCF8;
+  color: #1A1612;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.login-input:focus {
   border-color: #C4956A;
 }
 

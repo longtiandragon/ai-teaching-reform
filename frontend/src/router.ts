@@ -8,7 +8,6 @@ const StudentLayout = () => import('./views/StudentLayout.vue')
 const CourseRoadmap = () => import('./views/CourseRoadmap.vue')
 const StudentRecords = () => import('./views/StudentRecords.vue')
 const TaskWorkspace = () => import('./views/TaskWorkspace.vue')
-const AIConfigPanel = () => import('./views/AIConfigPanel.vue')
 
 // 教师端
 const TeacherLayout = () => import('./views/TeacherLayout.vue')
@@ -32,7 +31,6 @@ export const router = createRouter({
         { path: '', component: CourseRoadmap },
         { path: 'task/:taskId', name: 'task-workspace', component: TaskWorkspace },
         { path: 'records', component: StudentRecords },
-        { path: 'ai-config', component: AIConfigPanel },
       ],
     },
 
@@ -46,7 +44,7 @@ export const router = createRouter({
         { path: 'knowledge', component: KnowledgeManager },
         { path: 'students', component: StudentManagement },
         { path: 'feedback', component: FeedbackCenter },
-        { path: 'ai-config', component: AIConfigPanel },
+        { path: 'ai-config', component: () => import('./views/AIConfigPanel.vue') },
       ],
     },
   ],

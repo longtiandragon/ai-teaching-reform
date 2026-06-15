@@ -1,5 +1,7 @@
-import sqlite3
+﻿import sqlite3
 import json
+import base64
+import hashlib
 from collections.abc import Iterable
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -48,6 +50,8 @@ def init_db() -> None:
             )
             """
         )
+        _ensure_column(conn, "users", "username", "TEXT")
+        _ensure_column(conn, "users", "password_hash", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS learning_records (
@@ -199,8 +203,31 @@ def init_db() -> None:
                 task_id TEXT NOT NULL,
                 course_line_id TEXT NOT NULL,
                 published_by TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'published',
                 created_at TEXT NOT NULL,
+                updated_at TEXT,
                 UNIQUE(question_id, task_id)
+            )
+            """
+        )
+        _ensure_column(conn, "published_questions", "status", "TEXT DEFAULT 'published'")
+        _ensure_column(conn, "published_questions", "updated_at", "TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS teacher_questions (
+                id TEXT PRIMARY KEY,
+                course_id TEXT NOT NULL,
+                lesson_id TEXT NOT NULL,
+                type TEXT NOT NULL,
+                stem TEXT NOT NULL,
+                options_json TEXT,
+                answer TEXT NOT NULL,
+                explanation TEXT,
+                difficulty TEXT NOT NULL,
+                tags_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )
             """
         )
@@ -215,28 +242,92 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_typ
 
 
 def _seed_initial_accounts(conn: sqlite3.Connection) -> None:
+    _sync_official_accounts(conn)
+
+
+def _sync_official_accounts(conn: sqlite3.Connection) -> None:
     classes = [
-        ("class-24-soft", "24软件本", "nongbo-admin-project"),
-        ("class-24-apply-2", "24计应2班", "springboot-course-12"),
+        ("class-24-software-undergrad", "24软件本科班", "nongbo-admin-project"),
     ]
     users = [
-        ("stu-240101", "陈明", "student", "class-24-soft", "240101"),
-        ("stu-240102", "李欣", "student", "class-24-soft", "240102"),
-        ("stu-240103", "王睿", "student", "class-24-soft", "240103"),
-        ("stu-240201", "赵晴", "student", "class-24-soft", "240201"),
-        ("stu-240200048", "新同学", "student", "class-24-apply-2", "240200048"),
-        ("teacher-001", "孙老师", "teacher", "class-24-soft", "T2024001"),
-        ("teacher-002", "王老师", "teacher", "class-24-apply-2", "T2024002"),
-        ("teacher-003", "孙老师", "teacher", "class-24-soft", "20240036"),
+        ("teacher-20240036", "孙立晔", "teacher", "class-24-software-undergrad", "20240036", "20240036"),
+        ("stu-001", "林昕", "student", "class-24-software-undergrad", "1", "1"),
+        ("stu-002", "周雨桐", "student", "class-24-software-undergrad", "2", "2"),
+        ("stu-003", "陈思源", "student", "class-24-software-undergrad", "3", "3"),
+        ("stu-004", "李若涵", "student", "class-24-software-undergrad", "4", "4"),
+        ("stu-005", "王嘉宁", "student", "class-24-software-undergrad", "5", "5"),
+        ("stu-006", "赵一诺", "student", "class-24-software-undergrad", "6", "6"),
+        ("stu-007", "孙明轩", "student", "class-24-software-undergrad", "7", "7"),
+        ("stu-008", "刘子墨", "student", "class-24-software-undergrad", "8", "8"),
+        ("stu-009", "黄诗涵", "student", "class-24-software-undergrad", "9", "9"),
+        ("stu-010", "吴泽宇", "student", "class-24-software-undergrad", "10", "10"),
     ]
+    class_ids = [item[0] for item in classes]
+    user_ids = [item[0] for item in users]
+    class_placeholders = ",".join("?" for _ in class_ids)
+    user_placeholders = ",".join("?" for _ in user_ids)
+    conn.execute(
+        f"DELETE FROM teacher_feedback WHERE teacher_id NOT IN ({user_placeholders}) OR student_id NOT IN ({user_placeholders})",
+        [*user_ids, *user_ids],
+    )
+    conn.execute(
+        f"DELETE FROM guided_sessions WHERE student_id NOT IN ({user_placeholders})",
+        user_ids,
+    )
+    conn.execute(
+        f"DELETE FROM task_submissions WHERE student_id NOT IN ({user_placeholders})",
+        user_ids,
+    )
+    conn.execute(
+        f"DELETE FROM student_task_progress WHERE student_id NOT IN ({user_placeholders})",
+        user_ids,
+    )
+    conn.execute(
+        f"DELETE FROM learning_records WHERE student_id NOT IN ({user_placeholders}) OR class_id NOT IN ({class_placeholders})",
+        [*user_ids, *class_ids],
+    )
+    conn.execute(
+        f"DELETE FROM interactions WHERE (student_id IS NOT NULL AND student_id NOT IN ({user_placeholders})) OR (class_id IS NOT NULL AND class_id NOT IN ({class_placeholders}))",
+        [*user_ids, *class_ids],
+    )
+    conn.execute(
+        f"DELETE FROM classes WHERE id NOT IN ({class_placeholders})",
+        class_ids,
+    )
+    conn.execute(
+        f"DELETE FROM users WHERE id NOT IN ({user_placeholders})",
+        user_ids,
+    )
     conn.executemany(
-        "INSERT OR IGNORE INTO classes(id, name, course_id) VALUES (?, ?, ?)",
+        """
+        INSERT INTO classes(id, name, course_id) VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            name=excluded.name,
+            course_id=excluded.course_id
+        """,
         classes,
     )
-    conn.executemany(
-        "INSERT OR IGNORE INTO users(id, name, role, class_id, student_no) VALUES (?, ?, ?, ?, ?)",
-        users,
-    )
+    default_password = _hash_seed_password("123456")
+    for user_id, name, role, class_id, student_no, username in users:
+        conn.execute(
+            """
+            INSERT INTO users(id, name, role, class_id, student_no, username, password_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                name=excluded.name,
+                role=excluded.role,
+                class_id=excluded.class_id,
+                student_no=excluded.student_no,
+                username=excluded.username,
+                password_hash=excluded.password_hash
+            """,
+            (user_id, name, role, class_id, student_no, username, default_password),
+        )
+
+
+def _hash_seed_password(password: str, salt: str = "local-system-seed") -> str:
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 120_000)
+    return f"pbkdf2_sha256${salt}${base64.urlsafe_b64encode(digest).decode('ascii')}"
 
 
 @contextmanager
@@ -298,6 +389,18 @@ def list_users(role: str | None = None) -> list[sqlite3.Row]:
 def get_user(user_id: str) -> sqlite3.Row | None:
     with get_conn() as conn:
         return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+
+def get_user_by_login(login: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT * FROM users
+            WHERE id = ? OR username = ? OR student_no = ?
+            LIMIT 1
+            """,
+            (login, login, login),
+        ).fetchone()
 
 
 def record_learning_event(
@@ -364,18 +467,22 @@ def student_records(student_id: str, course_id: str | None = None) -> list[sqlit
         if course_id:
             return conn.execute(
                 """
-                SELECT * FROM learning_records
-                WHERE student_id = ? AND course_id = ?
-                ORDER BY created_at DESC
+                SELECT lr.*, lt.title AS lesson_title
+                FROM learning_records lr
+                LEFT JOIN learning_tasks lt ON lt.id = lr.lesson_id
+                WHERE lr.student_id = ? AND lr.course_id = ?
+                ORDER BY lr.created_at DESC
                 LIMIT 100
                 """,
                 (student_id, course_id),
             ).fetchall()
         return conn.execute(
             """
-            SELECT * FROM learning_records
-            WHERE student_id = ?
-            ORDER BY created_at DESC
+            SELECT lr.*, lt.title AS lesson_title
+            FROM learning_records lr
+            LEFT JOIN learning_tasks lt ON lt.id = lr.lesson_id
+            WHERE lr.student_id = ?
+            ORDER BY lr.created_at DESC
             LIMIT 100
             """,
             (student_id,),
@@ -763,25 +870,27 @@ def publish_question(question_id: str, task_id: str, course_line_id: str, publis
     with get_conn() as conn:
         cursor = conn.execute(
             """
-            INSERT INTO published_questions(question_id, task_id, course_line_id, published_by, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO published_questions(question_id, task_id, course_line_id, published_by, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'published', ?, ?)
             ON CONFLICT(question_id, task_id) DO UPDATE SET
                 course_line_id=excluded.course_line_id,
                 published_by=excluded.published_by,
-                created_at=excluded.created_at
+                status='published',
+                updated_at=excluded.updated_at
             """,
-            (question_id, task_id, course_line_id, published_by, now),
+            (question_id, task_id, course_line_id, published_by, now, now),
         )
         conn.commit()
         return cursor.lastrowid
 
 
 def unpublish_question(question_id: str, task_id: str) -> bool:
-    """Remove a published question from a task."""
+    """Set a published question back to draft without deleting history."""
+    now = datetime.now(UTC).isoformat()
     with get_conn() as conn:
         cursor = conn.execute(
-            "DELETE FROM published_questions WHERE question_id = ? AND task_id = ?",
-            (question_id, task_id),
+            "UPDATE published_questions SET status = 'draft', updated_at = ? WHERE question_id = ? AND task_id = ?",
+            (now, question_id, task_id),
         )
         conn.commit()
         return cursor.rowcount > 0
@@ -791,7 +900,7 @@ def get_published_questions(task_id: str) -> list[sqlite3.Row]:
     """Get all published questions for a task."""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT * FROM published_questions WHERE task_id = ? ORDER BY created_at",
+            "SELECT * FROM published_questions WHERE task_id = ? AND status = 'published' ORDER BY created_at",
             (task_id,),
         ).fetchall()
 
@@ -800,7 +909,7 @@ def get_published_questions_by_course(course_line_id: str) -> list[sqlite3.Row]:
     """Get all published questions grouped by task for a course line."""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT * FROM published_questions WHERE course_line_id = ? ORDER BY task_id, created_at",
+            "SELECT * FROM published_questions WHERE course_line_id = ? AND status = 'published' ORDER BY task_id, created_at",
             (course_line_id,),
         ).fetchall()
 
@@ -809,7 +918,7 @@ def get_published_question(question_id: str, task_id: str) -> sqlite3.Row | None
     """Get a single published question entry."""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT * FROM published_questions WHERE question_id = ? AND task_id = ?",
+            "SELECT * FROM published_questions WHERE question_id = ? AND task_id = ? AND status = 'published'",
             (question_id, task_id),
         ).fetchone()
 
@@ -818,9 +927,228 @@ def get_all_published_for_question(question_id: str) -> list[sqlite3.Row]:
     """Get all tasks a question is published to."""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT * FROM published_questions WHERE question_id = ?",
+            "SELECT * FROM published_questions WHERE question_id = ? AND status = 'published'",
             (question_id,),
         ).fetchall()
+
+
+def upsert_teacher_question(question: dict) -> None:
+    now = datetime.now(UTC).isoformat()
+    with get_conn() as conn:
+        existing = conn.execute("SELECT id FROM teacher_questions WHERE id = ?", (question["id"],)).fetchone()
+        conn.execute(
+            """
+            INSERT INTO teacher_questions(
+                id, course_id, lesson_id, type, stem, options_json, answer, explanation,
+                difficulty, tags_json, status, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                course_id=excluded.course_id,
+                lesson_id=excluded.lesson_id,
+                type=excluded.type,
+                stem=excluded.stem,
+                options_json=excluded.options_json,
+                answer=excluded.answer,
+                explanation=excluded.explanation,
+                difficulty=excluded.difficulty,
+                tags_json=excluded.tags_json,
+                status='active',
+                updated_at=excluded.updated_at
+            """,
+            (
+                question["id"],
+                question["course_id"],
+                question["lesson_id"],
+                question["type"],
+                question["stem"],
+                json.dumps(question.get("options"), ensure_ascii=False) if question.get("options") is not None else None,
+                question["answer"],
+                question.get("explanation"),
+                question.get("difficulty", "medium"),
+                json.dumps(question.get("tags", []), ensure_ascii=False),
+                now if existing is None else now,
+                now,
+            ),
+        )
+        conn.commit()
+
+
+def list_teacher_questions(course_id: str | None = None) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        if course_id:
+            return conn.execute(
+                "SELECT * FROM teacher_questions WHERE status != 'deleted' AND course_id = ? ORDER BY updated_at DESC",
+                (course_id,),
+            ).fetchall()
+        return conn.execute("SELECT * FROM teacher_questions WHERE status != 'deleted' ORDER BY updated_at DESC").fetchall()
+
+
+def list_deleted_question_ids(course_id: str | None = None) -> set[str]:
+    with get_conn() as conn:
+        if course_id:
+            rows = conn.execute(
+                "SELECT id FROM teacher_questions WHERE status = 'deleted' AND course_id = ?",
+                (course_id,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT id FROM teacher_questions WHERE status = 'deleted'").fetchall()
+        return {row["id"] for row in rows}
+
+
+def get_teacher_question(question_id: str) -> sqlite3.Row | None:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT * FROM teacher_questions WHERE id = ? AND status != 'deleted'",
+            (question_id,),
+        ).fetchone()
+
+
+def soft_delete_teacher_question(question_id: str) -> bool:
+    now = datetime.now(UTC).isoformat()
+    with get_conn() as conn:
+        cursor = conn.execute(
+            "UPDATE teacher_questions SET status = 'deleted', updated_at = ? WHERE id = ? AND status != 'deleted'",
+            (now, question_id),
+        )
+        conn.execute(
+            "UPDATE published_questions SET status = 'deleted', updated_at = ? WHERE question_id = ?",
+            (now, question_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def sync_published_questions_seed(
+    seed_questions: list[dict],
+    *,
+    draft_count: int = 10,
+    published_by: str = "teacher-20240036",
+) -> dict:
+    """Keep the local question bank in a formal published state.
+
+    Seed and teacher-created questions are mapped to real learning tasks. Invalid
+    test leftovers are soft-deleted so they do not appear in teacher or student
+    query results, while historical rows stay available for existing records.
+    """
+    now = datetime.now(UTC).isoformat()
+    task_map = {row["id"]: dict(row) for row in task_rows()}
+    valid_task_ids = set(task_map)
+    legacy_task_map = {
+        "task-course-table-design": "task-database-overview",
+        "task-entity-design": "task-springboot-setup",
+        "task-mapper-service-controller": "task-ssm-mapper-xml",
+        "task-api-test-reflection": "task-frontend-integration",
+        "project5-guided-test": "task-frontend-integration",
+        "nongbo-project5-guided-test": "task-frontend-integration",
+    }
+
+    def is_test_leftover(item: dict) -> bool:
+        text = f"{item.get('id', '')} {item.get('lesson_id', '')} {item.get('stem', '')}"
+        return (
+            "project5-guided-test" in text
+            or "Explain Vue Axios integration for project 5" in text
+            or "377488e39fbc459db05bb0f7d561a8fa" in text
+        )
+
+    def canonical_task_id(item: dict) -> str | None:
+        lesson_id = item.get("lesson_id") or ""
+        if lesson_id in valid_task_ids:
+            return lesson_id
+        task_id = f"task-{lesson_id}"
+        if task_id in valid_task_ids:
+            return task_id
+        mapped = legacy_task_map.get(lesson_id)
+        if mapped in valid_task_ids:
+            return mapped
+        return None
+
+    with get_conn() as conn:
+        teacher_rows = conn.execute("SELECT * FROM teacher_questions WHERE status != 'deleted'").fetchall()
+        all_questions: dict[str, dict] = {}
+        bad_ids: set[str] = set()
+        for question in seed_questions:
+            item = dict(question)
+            if is_test_leftover(item):
+                bad_ids.add(item.get("id", ""))
+                continue
+            all_questions[item["id"]] = item
+        for row in teacher_rows:
+            item = dict(row)
+            if is_test_leftover(item):
+                bad_ids.add(item["id"])
+                continue
+            all_questions[item["id"]] = item
+
+        valid_entries: list[tuple[str, str, str, int, str]] = []
+        for question_id, item in all_questions.items():
+            task_id = canonical_task_id(item)
+            if not task_id:
+                bad_ids.add(question_id)
+                continue
+            task = task_map[task_id]
+            course_line_id = item.get("course_id") or task["course_line_id"]
+            if course_line_id != task["course_line_id"]:
+                course_line_id = task["course_line_id"]
+            valid_entries.append(
+                (
+                    question_id,
+                    task_id,
+                    course_line_id,
+                    int(task.get("sort_order") or 0),
+                    item.get("stem") or "",
+                )
+            )
+
+        valid_entries.sort(key=lambda entry: (entry[2], entry[3], entry[1], entry[0]))
+        draft_ids = {entry[0] for entry in valid_entries[-max(0, draft_count):]} if draft_count else set()
+        valid_ids = {entry[0] for entry in valid_entries}
+
+        if bad_ids:
+            placeholders = ",".join("?" for _ in bad_ids)
+            conn.execute(
+                f"UPDATE teacher_questions SET status = 'deleted', updated_at = ? WHERE id IN ({placeholders})",
+                [now, *bad_ids],
+            )
+            conn.execute(
+                f"UPDATE published_questions SET status = 'deleted', updated_at = ? WHERE question_id IN ({placeholders})",
+                [now, *bad_ids],
+            )
+        if valid_ids:
+            placeholders = ",".join("?" for _ in valid_ids)
+            conn.execute(
+                f"UPDATE published_questions SET status = 'deleted', updated_at = ? WHERE question_id NOT IN ({placeholders})",
+                [now, *valid_ids],
+            )
+            conn.execute(
+                f"UPDATE published_questions SET status = 'deleted', updated_at = ? WHERE question_id IN ({placeholders})",
+                [now, *valid_ids],
+            )
+        else:
+            conn.execute("UPDATE published_questions SET status = 'deleted', updated_at = ?", (now,))
+
+        for question_id, task_id, course_line_id, _, _ in valid_entries:
+            status = "draft" if question_id in draft_ids else "published"
+            conn.execute(
+                """
+                INSERT INTO published_questions(question_id, task_id, course_line_id, published_by, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(question_id, task_id) DO UPDATE SET
+                    course_line_id=excluded.course_line_id,
+                    published_by=excluded.published_by,
+                    status=excluded.status,
+                    updated_at=excluded.updated_at
+                """,
+                (question_id, task_id, course_line_id, published_by, status, now, now),
+            )
+        conn.commit()
+
+    return {
+        "total": len(valid_entries),
+        "published": len(valid_entries) - len(draft_ids),
+        "draft": len(draft_ids),
+        "deleted": len(bad_ids),
+    }
 
 
 def get_all_feedback() -> list[sqlite3.Row]:
