@@ -77,21 +77,35 @@ def register_file(
     chunk_count: int,
     course_line_id: str | None = None,
     uploaded_by: str | None = None,
+    file_id: str | None = None,
 ) -> str:
     """注册已上传的文件到元数据表。"""
     init_kb_tables()
-    file_id = f"kb-{uuid.uuid4().hex[:12]}"
+    file_id = file_id or f"kb-{uuid.uuid4().hex[:12]}"
     now = datetime.now(UTC).isoformat()
     with get_conn() as conn:
         conn.execute(
             """
             INSERT INTO kb_files(id, filename, file_type, course_line_id, chunk_count, uploaded_by, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                filename=excluded.filename,
+                file_type=excluded.file_type,
+                course_line_id=excluded.course_line_id,
+                chunk_count=excluded.chunk_count,
+                uploaded_by=excluded.uploaded_by
             """,
             (file_id, filename, file_type, course_line_id, chunk_count, uploaded_by, now),
         )
         conn.commit()
     return file_id
+
+
+def update_file_chunk_count(file_id: str, chunk_count: int) -> None:
+    init_kb_tables()
+    with get_conn() as conn:
+        conn.execute("UPDATE kb_files SET chunk_count = ? WHERE id = ?", (chunk_count, file_id))
+        conn.commit()
 
 
 def associate_task(file_id: str, task_id: str) -> bool:

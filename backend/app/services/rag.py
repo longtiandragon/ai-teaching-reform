@@ -12,7 +12,7 @@ from backend.app.models import Citation
 
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*|\d+|[\u4e00-\u9fff]+")
-PROJECT_ROOT = ROOT_DIR / "农博后台管理系统项目1-5-20260609" / "农博后台管理系统项目1-5"
+PROJECT_ROOT = ROOT_DIR / "农宝后台管理系统项目1-5-20260609" / "农宝后台管理系统项目1-5"
 COURSE_MATERIALS_DIR = ROOT_DIR / "docs" / "course-materials"
 COURSE_STANDARD_DOC = ROOT_DIR / "孙立晔+《Web系统应用开发一》+课程标准_24软.doc"
 ROOT_NONGBO_SQL = ROOT_DIR / "nb_database.sql"
@@ -28,6 +28,8 @@ class KnowledgeChunk:
     lesson_id: str | None = None
     kind: str = "content"
     keywords: tuple[str, ...] = ()
+    file_id: str | None = None
+    task_ids: tuple[str, ...] = ()
 
 
 class RagService:
@@ -103,20 +105,34 @@ class RagService:
         chunks.extend(self._standard_chunks())
         chunks.extend(self._course_standard_doc_chunks())
         chunks.extend(self._requirement_spec_chunks())
+        chunks.extend(self._uploaded_document_chunks())
         self._chunks = [chunk for chunk in chunks if chunk.text.strip()]
         self._try_init_chroma(self._chunks)
         return len(self._chunks)
 
-    def add_document(self, filename: str, content: str, course_id: str | None = None) -> int:
+    def add_document(
+        self,
+        filename: str,
+        content: str,
+        course_id: str | None = None,
+        *,
+        file_id: str | None = None,
+        task_ids: list[str] | tuple[str, ...] | None = None,
+    ) -> int:
+        existing_id = file_id or f"upload:{filename}"
+        self._chunks = [chunk for chunk in self._chunks if chunk.file_id != existing_id]
+        linked_tasks = tuple(task_ids or ())
         new_chunks = [
             KnowledgeChunk(
-                id=f"upload:{filename}:{index}",
+                id=f"upload:{existing_id}:{index}",
                 course_id=course_id,
                 title=filename,
                 source=f"upload/{filename}",
                 text=part,
-                kind="upload",
+                kind="task-upload" if linked_tasks else "upload",
                 keywords=tuple(self._tokens(part).keys())[:12],
+                file_id=existing_id,
+                task_ids=linked_tasks,
             )
             for index, part in enumerate(self._split_text(content, self.settings.rag_chunk_size))
             if part.strip()
@@ -125,17 +141,46 @@ class RagService:
         self._try_init_chroma(self._chunks)
         return len(new_chunks)
 
+    def remove_document(self, file_id: str) -> None:
+        self._chunks = [chunk for chunk in self._chunks if chunk.file_id != file_id]
+        self._try_init_chroma(self._chunks)
+
+    def set_document_tasks(self, file_id: str, task_ids: list[str] | tuple[str, ...]) -> None:
+        linked_tasks = tuple(task_ids)
+        updated: list[KnowledgeChunk] = []
+        for chunk in self._chunks:
+            if chunk.file_id != file_id:
+                updated.append(chunk)
+                continue
+            updated.append(
+                KnowledgeChunk(
+                    id=chunk.id,
+                    title=chunk.title,
+                    source=chunk.source,
+                    text=chunk.text,
+                    course_id=chunk.course_id,
+                    lesson_id=chunk.lesson_id,
+                    kind="task-upload" if linked_tasks else "upload",
+                    keywords=chunk.keywords,
+                    file_id=chunk.file_id,
+                    task_ids=linked_tasks,
+                )
+            )
+        self._chunks = updated
+        self._try_init_chroma(self._chunks)
+
     def search(
         self,
         query: str,
         limit: int | None = None,
         lesson_id: str | None = None,
         course_id: str | None = None,
+        task_id: str | None = None,
     ) -> list[Citation]:
         query = self._expand_query(query)
         top_k = limit or self.settings.rag_top_k
         scored: dict[str, tuple[float, KnowledgeChunk]] = {}
-        for score, chunk in self._keyword_rank(query, lesson_id, course_id):
+        for score, chunk in self._keyword_rank(query, lesson_id, course_id, task_id):
             if score > 0:
                 scored[chunk.id] = (score, chunk)
 
@@ -159,12 +204,14 @@ class RagService:
                         course_id=meta.get("course_id") or None,
                         lesson_id=meta.get("lesson_id") or None,
                         kind=meta.get("kind", "chunk"),
+                        file_id=meta.get("file_id") or None,
+                        task_ids=tuple(str(meta.get("task_ids") or "").split(",")) if meta.get("task_ids") else (),
                     )
-                    if not self._allowed(chunk, course_id):
+                    if not self._allowed(chunk, course_id, task_id):
                         continue
                     if self._score(query, doc) <= 0 and not self._keyword_hits(query, chunk.keywords):
                         continue
-                    vector_score = (1 / (1 + max(float(distance), 0))) + self._context_boost(query, chunk, lesson_id, course_id)
+                    vector_score = (1 / (1 + max(float(distance), 0))) + self._context_boost(query, chunk, lesson_id, course_id, task_id)
                     current = scored.get(chunk.id, (0, chunk))[0]
                     scored[chunk.id] = (max(current, vector_score), chunk)
             except Exception:
@@ -202,6 +249,8 @@ class RagService:
                         "course_id": chunk.course_id or "",
                         "lesson_id": chunk.lesson_id or "",
                         "kind": chunk.kind,
+                        "file_id": chunk.file_id or "",
+                        "task_ids": ",".join(chunk.task_ids),
                     }
                     for chunk in chunks
                 ],
@@ -212,29 +261,50 @@ class RagService:
             self._chroma_collection = None
             self._backend = "keyword"
 
-    def _keyword_rank(self, query: str, lesson_id: str | None, course_id: str | None) -> list[tuple[float, KnowledgeChunk]]:
+    def _keyword_rank(
+        self,
+        query: str,
+        lesson_id: str | None,
+        course_id: str | None,
+        task_id: str | None = None,
+    ) -> list[tuple[float, KnowledgeChunk]]:
         ranked = []
         for chunk in self._chunks:
-            if not self._allowed(chunk, course_id):
+            if not self._allowed(chunk, course_id, task_id):
                 continue
             base_score = self._score(query, chunk.text)
             if base_score <= 0 and not self._keyword_hits(query, chunk.keywords):
                 continue
-            ranked.append((base_score + self._concept_boost(query, chunk.text) + self._context_boost(query, chunk, lesson_id, course_id), chunk))
+            ranked.append((base_score + self._concept_boost(query, chunk.text) + self._context_boost(query, chunk, lesson_id, course_id, task_id), chunk))
         ranked.sort(key=lambda item: item[0], reverse=True)
         return ranked
 
-    def _allowed(self, chunk: KnowledgeChunk, course_id: str | None) -> bool:
+    def _allowed(self, chunk: KnowledgeChunk, course_id: str | None, task_id: str | None = None) -> bool:
         if course_id is None:
-            return True
-        return chunk.course_id in (None, course_id)
+            course_allowed = True
+        else:
+            course_allowed = chunk.course_id in (None, course_id)
+        if not course_allowed:
+            return False
+        if task_id and chunk.kind == "task-upload" and chunk.task_ids and task_id not in chunk.task_ids:
+            return False
+        return True
 
-    def _context_boost(self, query: str, chunk: KnowledgeChunk, lesson_id: str | None, course_id: str | None) -> float:
+    def _context_boost(
+        self,
+        query: str,
+        chunk: KnowledgeChunk,
+        lesson_id: str | None,
+        course_id: str | None,
+        task_id: str | None = None,
+    ) -> float:
         boost = 0.0
         if course_id and chunk.course_id == course_id:
             boost += 0.08
         if lesson_id and chunk.lesson_id == lesson_id:
             boost += self.settings.rag_lesson_boost
+        if task_id and task_id in chunk.task_ids:
+            boost += 2.0
         if self._keyword_hits(query, chunk.keywords):
             boost += 0.12
         return boost
@@ -453,6 +523,46 @@ class RagService:
             )
             for index, part in enumerate(self._split_text(pc_text, self.settings.rag_chunk_size))
         ]
+
+    def _uploaded_document_chunks(self) -> list[KnowledgeChunk]:
+        try:
+            from backend.app.services import kb_manager
+
+            files = kb_manager.list_files()
+        except Exception:
+            return []
+
+        chunks: list[KnowledgeChunk] = []
+        for file in files:
+            filename = str(file.get("filename") or "")
+            file_id = str(file.get("id") or "")
+            if not filename or not file_id:
+                continue
+            path = self.settings.upload_dir / Path(filename).name
+            content = self._read_text(path)
+            if not content.strip():
+                continue
+            try:
+                task_ids = tuple(kb_manager.get_file_tasks(file_id))
+            except Exception:
+                task_ids = ()
+            course_id = file.get("course_line_id") or None
+            kind = "task-upload" if task_ids else "upload"
+            for index, part in enumerate(self._split_text(content, self.settings.rag_chunk_size)):
+                chunks.append(
+                    KnowledgeChunk(
+                        id=f"upload:{file_id}:{index}",
+                        course_id=course_id,
+                        title=filename,
+                        source=f"upload/{filename}",
+                        text=part,
+                        kind=kind,
+                        keywords=tuple(self._tokens(part).keys())[:16],
+                        file_id=file_id,
+                        task_ids=task_ids,
+                    )
+                )
+        return chunks
 
     def _material_title(self, content: str, fallback: str) -> str:
         for line in content.splitlines():

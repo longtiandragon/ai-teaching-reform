@@ -8,7 +8,7 @@
       <div class="header-left">
         <span class="eyebrow-tag">
           <span class="tag-dot"></span>
-          Learning Route
+          学习路线
         </span>
         <h1 class="header-title">
           <span class="title-line">{{ store.course?.title || 'SpringBoot 与农宝项目实训' }}</span>
@@ -53,7 +53,7 @@
       <!-- 左侧：学习节奏概览 -->
       <aside class="rhythm-panel">
         <div class="panel-header">
-          <span class="eyebrow-tag small">Overview</span>
+          <span class="eyebrow-tag small">学习概览</span>
           <h3>学习节奏</h3>
         </div>
 
@@ -80,7 +80,7 @@
       <section class="lessons-section">
         <div class="section-header">
           <div>
-            <span class="eyebrow-tag small">Learning Path</span>
+            <span class="eyebrow-tag small">关卡路径</span>
             <h3>关卡路线</h3>
           </div>
           <span class="source-badge">{{ sourceLabel }}</span>
@@ -125,7 +125,7 @@
 
               <div class="card-footer">
                 <span class="card-tags">
-                  <span v-for="tag in (lesson.tags || []).slice(0, 2)" :key="tag" class="tag">{{ tag }}</span>
+                  <span v-for="tag in (lesson.tags || []).slice(0, 2)" :key="tag" class="tag">{{ routeTagLabel(tag) }}</span>
                 </span>
                 <span class="card-arrow">
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -285,7 +285,30 @@ function lessonSubtitle(lesson: { id: string; title: string; tags: string[]; sou
     return nongboMissionCopy(lesson)
   }
   const tags = (lesson.tags || []).filter((tag) => !/RAG|真实资料|课程资料/i.test(tag))
-  return tags.length ? tags.slice(0, 3).join(' / ') : '课程讲解与实训练习'
+  return tags.length ? tags.slice(0, 3).map(routeTagLabel).join(' / ') : '课程讲解与实训练习'
+}
+
+function routeTagLabel(tag: string): string {
+  const labels: Record<string, string> = {
+    analysis: '资料分析',
+    coding: '代码练习',
+    text: '文字答案',
+    java_snippet: 'Java 片段',
+    sql: 'SQL 练习',
+    api_design: '接口设计',
+    lesson_practice: '章节练习',
+    code_or_text: '代码或文字',
+    project_document: '项目资料',
+    'project-document': '项目资料',
+    'course-standard': '课程标准',
+    'course-material': '课程资料',
+    waiting: '引导中',
+    active: '进行中',
+    locked: '未解锁',
+    completed: '已完成',
+    needs_revision: '需修改',
+  }
+  return labels[tag] || tag.replace(/_/g, ' ')
 }
 
 function nongboMissionCopy(lesson: { id: string; title: string; source?: string }) {

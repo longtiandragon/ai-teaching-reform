@@ -7,11 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(ROOT_DIR / ".env")
+load_dotenv(ROOT_DIR / ".env", encoding="utf-8-sig")
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=ROOT_DIR / ".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ROOT_DIR / ".env", env_file_encoding="utf-8-sig", extra="ignore")
 
     app_name: str = "Web Training Platform"
     app_env: str = Field(default="development", alias="APP_ENV")
@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     rag_concept_boost: float = Field(default=0.25, alias="RAG_CONCEPT_BOOST")
     rag_vector_candidates: int = Field(default=10, alias="RAG_VECTOR_CANDIDATES")
     upload_max_bytes: int = Field(default=2 * 1024 * 1024, alias="UPLOAD_MAX_BYTES")
+    web_search_enabled: bool = Field(default=False, alias="WEB_SEARCH_ENABLED")
+    web_search_provider: str = Field(default="tavily", alias="WEB_SEARCH_PROVIDER")
+    web_search_api_key: str = Field(default="", alias="WEB_SEARCH_API_KEY")
+    web_search_top_k: int = Field(default=3, alias="WEB_SEARCH_TOP_K")
+    web_search_timeout_seconds: float = Field(default=8, alias="WEB_SEARCH_TIMEOUT_SECONDS")
 
     @property
     def db_path(self) -> Path:

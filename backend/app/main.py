@@ -3,12 +3,12 @@ import json
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from backend.app.config import get_settings
-from backend.app.data.courses import get_courses, get_lesson
+from backend.app.data.courses import NONGBO_COURSE_ID, SPRINGBOOT_COURSE_ID, get_courses, get_lesson
 from backend.app.models import (
     ChatRequest,
     ChatResponse,
@@ -18,6 +18,9 @@ from backend.app.models import (
     AgentSkillRunRequest,
     AgentSkillRunResponse,
     CourseLineSummary,
+    GuidedMessageRequest,
+    GuidedSessionResponse,
+    GuidedStartRequest,
     HealthResponse,
     IngestResponse,
     LearningMapResponse,
@@ -33,6 +36,15 @@ from backend.app.models import (
 from backend.app.services.analytics import teacher_analytics
 from backend.app.services.agent_tools import list_skills, run_skill
 from backend.app.services.agent_flow import NoCitationError, run_agent_once, stream_agent
+from backend.app.services.guided_agent import (
+    continue_guided_session,
+    finish_guided_continue,
+    finish_guided_start,
+    prepare_guided_continue,
+    prepare_guided_start,
+    start_guided_session,
+    stream_teaching_step,
+)
 from backend.app.services.ai_check import check_learning_task
 from backend.app.services.course_runtime import (
     get_course_line,
@@ -321,7 +333,11 @@ async def ingest() -> IngestResponse:
 
 
 @app.post("/api/kb/upload", response_model=IngestResponse)
-async def kb_upload(file: UploadFile = File(...)) -> IngestResponse:
+async def kb_upload(
+    file: UploadFile = File(...),
+    courseLineId: str | None = Form(default=None),
+    taskId: str | None = Form(default=None),
+) -> IngestResponse:
     settings = get_settings()
     safe_name = Path(file.filename or "upload.md").name
     suffix = Path(safe_name).suffix.lower()
@@ -361,14 +377,26 @@ async def kb_upload(file: UploadFile = File(...)) -> IngestResponse:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"文件解析失败: {str(exc)}") from exc
 
-    chunks = await asyncio.to_thread(rag_service.add_document, target.name, content)
     file_id = await asyncio.to_thread(
         kb_manager.register_file,
-        filename=safe_name,
-        file_type=suffix,
-        chunk_count=chunks,
+        safe_name,
+        suffix,
+        0,
+        courseLineId,
     )
-    return IngestResponse(chunks=chunks, backend=rag_service.backend_name, message="uploaded document indexed")
+    task_ids = [taskId] if taskId else []
+    chunks = await asyncio.to_thread(
+        rag_service.add_document,
+        target.name,
+        content,
+        courseLineId,
+        file_id=file_id,
+        task_ids=task_ids,
+    )
+    await asyncio.to_thread(kb_manager.update_file_chunk_count, file_id, chunks)
+    if taskId:
+        await asyncio.to_thread(kb_manager.associate_task, file_id, taskId)
+    return IngestResponse(chunks=chunks, backend=rag_service.backend_name, message="uploaded document indexed", fileId=file_id)
 
 
 # ---------- 题库 API ----------
@@ -384,6 +412,13 @@ def _all_questions(course_id: str) -> list[Question]:
     seed = questions_by_course(course_id)
     teacher = [q for q in TEACHER_QUESTIONS.values() if q.course_id == course_id]
     return seed + teacher
+
+
+def _question_lookup() -> dict[str, Question]:
+    return {
+        q.id: q
+        for q in _all_questions(SPRINGBOOT_COURSE_ID) + _all_questions(NONGBO_COURSE_ID)
+    }
 
 
 @app.get("/api/questions", response_model=QuestionListResponse)
@@ -418,6 +453,131 @@ async def delete_question(question_id: str) -> dict:
         raise HTTPException(status_code=404, detail="question not found or seed questions cannot be deleted")
     del TEACHER_QUESTIONS[question_id]
     return {"deleted": question_id}
+
+
+@app.post("/api/guided/start", response_model=GuidedSessionResponse)
+async def guided_start(request: GuidedStartRequest) -> GuidedSessionResponse:
+    task_context, prompt = await _guided_start_context(request)
+    try:
+        result = await start_guided_session(
+            task_id=request.taskId,
+            course_line_id=request.courseLineId,
+            student_id=request.studentId,
+            student_input=prompt,
+            task_context=task_context,
+            code_draft=request.codeDraft or "",
+        )
+    except NoCitationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except LLMError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return GuidedSessionResponse(**result)
+
+
+@app.post("/api/guided/start/stream")
+async def guided_start_stream(request: GuidedStartRequest) -> StreamingResponse:
+    async def event_stream():
+        try:
+            yield _sse("status", {"stage": "context", "message": "正在读取任务与题目..."})
+            task_context, prompt = await _guided_start_context(request)
+            yield _sse("status", {"stage": "planning", "message": "正在规划引导步骤..."})
+            state = await prepare_guided_start(
+                task_id=request.taskId,
+                course_line_id=request.courseLineId,
+                student_id=request.studentId,
+                student_input=prompt,
+                task_context=task_context,
+                code_draft=request.codeDraft or "",
+            )
+            yield _sse("metadata", _stream_metadata(state))
+            yield _sse("status", {"stage": "generating", "message": "正在生成本步引导..."})
+            async for delta in stream_teaching_step(state):
+                yield _sse("delta", {"text": delta})
+            result = finish_guided_start(state)
+            yield _sse("done", result)
+        except NoCitationError as exc:
+            yield _sse("error", {"message": str(exc), "status": 422})
+        except LLMError as exc:
+            yield _sse("error", {"message": str(exc), "status": exc.status_code})
+        except Exception as exc:
+            yield _sse("error", {"message": "智能体启动失败。", "detail": str(exc), "status": 500})
+
+    return _sse_response(event_stream())
+
+
+async def _guided_start_context(request: GuidedStartRequest) -> tuple[dict, str]:
+    task = await asyncio.to_thread(get_task_detail, request.taskId)
+    if task.course_line_id != request.courseLineId:
+        raise HTTPException(status_code=404, detail="task not found in course line")
+    question = None
+    if request.questionId:
+        question = next((item for item in _all_questions(request.courseLineId) if item.id == request.questionId), None)
+        if not question:
+            raise HTTPException(status_code=404, detail="question not found")
+        published = await asyncio.to_thread(get_published_questions, request.taskId)
+        if not any(row["question_id"] == request.questionId for row in published):
+            raise HTTPException(status_code=404, detail="question is not published to this task")
+    linked_files = await asyncio.to_thread(kb_manager.get_task_files, request.taskId)
+    task_context = task.model_dump()
+    task_context["question"] = question.model_dump() if question else None
+    task_context["linkedFiles"] = linked_files
+    prompt = request.studentInput
+    if question and question.stem not in prompt:
+        prompt = f"题目：{question.stem}\n学生请求：{prompt}"
+    return task_context, prompt
+
+
+@app.post("/api/guided/message", response_model=GuidedSessionResponse)
+async def guided_message(request: GuidedMessageRequest) -> GuidedSessionResponse:
+    try:
+        result = await continue_guided_session(
+            request.sessionId,
+            request.message,
+            code_draft=request.codeDraft or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except NoCitationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except LLMError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return GuidedSessionResponse(**result)
+
+
+@app.post("/api/guided/message/stream")
+async def guided_message_stream(request: GuidedMessageRequest) -> StreamingResponse:
+    async def event_stream():
+        try:
+            yield _sse("status", {"stage": "checking", "message": "正在判断当前输入是否可以推进..."})
+            state, status = await prepare_guided_continue(
+                request.sessionId,
+                request.message,
+                code_draft=request.codeDraft or "",
+            )
+            yield _sse("metadata", _stream_metadata(state))
+            if state.get("held"):
+                result = finish_guided_continue(state, status)
+                yield _sse("done", result)
+                return
+            if status == "completed":
+                result = finish_guided_continue(state, status)
+                yield _sse("done", result)
+                return
+            yield _sse("status", {"stage": "generating", "message": "正在生成下一步引导..."})
+            async for delta in stream_teaching_step(state):
+                yield _sse("delta", {"text": delta})
+            result = finish_guided_continue(state, status)
+            yield _sse("done", result)
+        except ValueError as exc:
+            yield _sse("error", {"message": str(exc), "status": 404})
+        except NoCitationError as exc:
+            yield _sse("error", {"message": str(exc), "status": 422})
+        except LLMError as exc:
+            yield _sse("error", {"message": str(exc), "status": exc.status_code})
+        except Exception as exc:
+            yield _sse("error", {"message": "智能体回复失败。", "detail": str(exc), "status": 500})
+
+    return _sse_response(event_stream())
 
 
 @app.get("/api/agent/skills")
@@ -533,6 +693,7 @@ async def kb_delete_file(file_id: str) -> dict:
     deleted = await asyncio.to_thread(kb_manager.delete_file, file_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="file not found")
+    await asyncio.to_thread(rag_service.remove_document, file_id)
     return {"deleted": file_id}
 
 
@@ -543,6 +704,20 @@ async def kb_associate(payload: dict) -> dict:
     if not file_id or not task_id:
         raise HTTPException(status_code=400, detail="file_id and task_id required")
     ok = await asyncio.to_thread(kb_manager.associate_task, file_id, task_id)
+    task_ids = await asyncio.to_thread(kb_manager.get_file_tasks, file_id)
+    await asyncio.to_thread(rag_service.set_document_tasks, file_id, task_ids)
+    return {"ok": ok}
+
+
+@app.delete("/api/teacher/kb/associate")
+async def kb_dissociate(payload: dict) -> dict:
+    file_id = payload.get("file_id")
+    task_id = payload.get("task_id")
+    if not file_id or not task_id:
+        raise HTTPException(status_code=400, detail="file_id and task_id required")
+    ok = await asyncio.to_thread(kb_manager.dissociate_task, file_id, task_id)
+    task_ids = await asyncio.to_thread(kb_manager.get_file_tasks, file_id)
+    await asyncio.to_thread(rag_service.set_document_tasks, file_id, task_ids)
     return {"ok": ok}
 
 
@@ -554,7 +729,13 @@ async def kb_task_files(task_id: str) -> dict:
 
 # ---------- 发布题目 ----------
 
-from backend.app.services.database import publish_question, unpublish_question, get_published_questions, get_published_questions_by_course
+from backend.app.services.database import (
+    get_all_published_for_question,
+    publish_question,
+    unpublish_question,
+    get_published_questions,
+    get_published_questions_by_course,
+)
 
 @app.post("/api/teacher/questions/publish")
 async def publish_question_endpoint(payload: dict) -> dict:
@@ -581,19 +762,19 @@ async def unpublish_question_endpoint(payload: dict) -> dict:
 @app.get("/api/published-questions/{task_id}")
 async def get_published_questions_endpoint(task_id: str) -> dict:
     rows = await asyncio.to_thread(get_published_questions, task_id)
-    all_questions = {q.id: q for q in questions_by_course("springboot-course-12") + questions_by_course("nongbo-admin-project")}
+    all_questions = _question_lookup()
     result = []
     for row in rows:
         q = all_questions.get(row["question_id"])
         if q:
             result.append(q.model_dump())
-    return {"questions": result}
+    return {"questions": result, "total": len(result)}
 
 
 @app.get("/api/published-questions/course/{course_line_id}")
 async def get_published_by_course_endpoint(course_line_id: str) -> dict:
     rows = await asyncio.to_thread(get_published_questions_by_course, course_line_id)
-    all_questions = {q.id: q for q in questions_by_course("springboot-course-12") + questions_by_course("nongbo-admin-project")}
+    all_questions = _question_lookup()
     tasks: dict[str, list] = {}
     for row in rows:
         task_id = row["task_id"]
@@ -601,6 +782,17 @@ async def get_published_by_course_endpoint(course_line_id: str) -> dict:
         if q:
             tasks.setdefault(task_id, []).append(q.model_dump())
     return {"tasks": [{"taskId": tid, "questions": qs} for tid, qs in tasks.items()]}
+
+
+@app.get("/api/questions/{question_id}/published-tasks")
+async def get_question_published_tasks_endpoint(question_id: str) -> dict:
+    rows = await asyncio.to_thread(get_all_published_for_question, question_id)
+    return {
+        "tasks": [
+            {"task_id": row["task_id"], "course_line_id": row["course_line_id"]}
+            for row in rows
+        ]
+    }
 
 
 def _extract_pdf_text(target: Path) -> str:
@@ -653,6 +845,34 @@ def _extract_csv_text(target: Path) -> str:
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _sse_response(event_stream) -> StreamingResponse:
+    return StreamingResponse(
+        event_stream,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _stream_metadata(state: dict) -> dict:
+    steps = state.get("steps", [])
+    current = int(state.get("current_step", 0))
+    citations = state.get("citations", [])
+    return {
+        "sessionId": state.get("session_id", ""),
+        "intent": state.get("intent", ""),
+        "steps": steps,
+        "currentStep": current,
+        "totalSteps": len(steps),
+        "currentStepTitle": steps[current]["title"] if steps and current < len(steps) else None,
+        "citations": [citation.model_dump() for citation in citations],
+        "status": state.get("status", "teaching"),
+    }
 
 
 def _learning_record_from_row(row) -> LearningRecord:

@@ -91,7 +91,13 @@ async def run_agent_once(request: ChatRequest) -> TeachingAgentState:
         raise NoCitationError("请把问题写具体一点。")
     graph = _try_compile_graph()
     if graph is not None:
-        result = await graph.ainvoke(state)
+        _patch_langchain_debug_compat()
+        try:
+            result = await graph.ainvoke(state)
+        except AttributeError as exc:
+            if "debug" not in str(exc):
+                raise
+            result = await _manual_flow(state)
     else:
         result = await _manual_flow(state)
     await _record_result(result)
@@ -139,7 +145,7 @@ def detect_intent(state: TeachingAgentState) -> TeachingAgentState:
     question = state["user_question"]
     if any(word in question for word in ["提示", "不会", "卡住", "怎么写"]):
         state["intent"] = "hint"
-    elif any(word in question for word in ["为什么", "原理", "区别", "解释", "是什么"]):
+    elif any(word in question for word in ["为什么", "原理", "区别", "解释", "是什么", "什么是"]):
         state["intent"] = "explain"
     elif any(word in question for word in ["检查", "评价", "改错", "哪里错"]):
         state["intent"] = "diagnose"
@@ -261,3 +267,13 @@ def _try_compile_graph():
         return graph.compile()
     except Exception:
         return None
+
+
+def _patch_langchain_debug_compat() -> None:
+    try:
+        import langchain
+
+        if not hasattr(langchain, "debug"):
+            langchain.debug = False
+    except Exception:
+        return

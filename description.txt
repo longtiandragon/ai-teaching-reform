@@ -1,893 +1,529 @@
-建议整体架构改成这个：
+当前题目
 
-Vue 3 学生工作台
-        ↓
-FastAPI API 层
-        ↓
-Course Runtime Engine 课程运行时
-        ↓
-LangGraph Tutor Graph AI 助教图
-        ↓
-Hybrid RAG 检索课程资料、项目资料、学生历史记录
-        ↓
-DeepSeek / OpenAI Compatible LLM
-        ↓
-Rubric Engine 评分规则引擎
-        ↓
-Progress Engine 进度与解锁引擎
-        ↓
-Teacher Dashboard 教师看板
+【编码题】请根据 nb_expert 表结构，编写建表 SQL（包含至少 8 个字段、2 个索引）。
 
-核心点是：
-LangGraph 不负责写死每一关；它负责通用教学流程。每一关的内容、目标、评分标准、引用资料由数据库提供。
+你现在要完成的小任务
 
-3. 你的“AI 实训驾驶舱”不要写死步骤，要从课程线读取
+请先阅读题干，在右侧写出你的答案或代码片段。需要提示时点“提示”，我会只围绕这道题分步讲解。
+我
+哦
+AI
+本步目标
 
-前端不要写死：
+你的第一个任务是读懂题目要求，明确当前步骤的工作边界。虽然《业务需求梳理》的标题看起来是分析业务模块，但题干明确写的是“【编码题】请根据 nb_expert 表结构，编写建表 SQL（包含至少 8 个字段、2 个索引）”。这意味着整个题目最终要完成的是一道SQL编码题。
+因此，第1步的目标是：确认“业务需求梳理”与最终编码题之间的关联，并定位到支撑本题的资料依据——即从需求文档中找到 nb_expert 表对应的业务模块（专家信息管理），理解其管理的业务数据范围，为后续编写建表SQL提供“字段来源”的根据。
 
-const steps = [
-  { title: '需求理解' },
-  { title: '数据库设计' },
-  { title: '实体类开发' }
-]
+资料依据
 
-而是请求：
+引用资料[2]《01-项目需求分析》中明确列出了农宝后台管理系统需要维护的核心业务模块，其中第一项就是 “专家信息维护”（即 nb_expert 表所属模块）。
+> “管理员需要通过后台完成专家信息维护、农业课程发布、政策信息发布、信贷产品维护、农事服务管理以及系统基础数据管理。”
 
-GET /api/course-lines/{courseLineId}/learning-map
+这说明：
+- 专家信息维护是系统的一个核心业务模块，管理的数据包括专家姓名、职称、专长、联系方式等（具体字段需要你从后续资料或常识推导）。
+- 本题的 SQL 建表语句必须对应这个模块的业务数据需求，而不是随意编造字段。
 
-后端返回：
+知识点拆解
 
-{
-  "courseLineId": "nongbo-admin-project",
-  "title": "农宝系统后台管理实训线",
-  "currentModule": {
-    "id": "knowledge-management",
-    "title": "知识管理模块"
-  },
-  "tasks": [
-    {
-      "id": "task_requirement_analysis",
-      "title": "需求理解",
-      "type": "analysis",
-      "status": "completed",
-      "progress": 100
-    },
-    {
-      "id": "task_database_design",
-      "title": "数据库设计",
-      "type": "design",
-      "status": "active",
-      "progress": 40
-    },
-    {
-      "id": "task_entity_design",
-      "title": "实体类开发",
-      "type": "coding",
-      "status": "locked",
-      "progress": 0
+1. 需求理解与任务边界：虽然当前步骤标题是“业务需求梳理”，但题干的最终产出是CREATE TABLE语句。因此你首先要理解：业务需求梳理是为了明确专家信息模块要管理哪些数据，而不是写一个完整的系统模块列表。
+2. 资料定位能力：从资料[2]中找出与nb_expert直接相关的业务描述，并以此作为后续字段设计的依据。
+3. 短答案题的答题方式：此题是short_answer题型，最终答案是建表SQL。但当前第1步不要求你写出完整SQL，只需要明确指出资料中关于“专家信息”的业务依据。
+
+局部示例与逐行解析
+
+根据资料[2]，专家信息维护模块主要管理专家的基本信息。例如（注意：此为示例而非完整答案）：
+
+-- 业务需求：专家信息管理需要存储专家的姓名、职称、专长、手机号、头像、简介、创建时间、更新时间等字段。
+
+逐行解析：
+- 第1行为注释，说明专家信息管理业务对数据库表字段的需求来源。
+- 该示例帮助你理解：编写建表SQL之前，需要先明确业务需要记录哪些信息。例如从需求文档中可推断：专家至少要有姓名、职称、专长（农业领域）等字段才能支撑“信息维护”功能。
+
+你现在要完成的小任务
+
+> 注意：当前是第1/4步，不要急着写SQL。
+
+请只做如下一件事：
+1. 认真阅读资料[2]《01-项目需求分析》中的“项目背景”段落。
+2. 从资料中找出与“专家信息”相关的业务描述，用自己的话在右侧“我的答案”框中写出：
+- 专家信息模块是管理什么数据的？
+- 资料中提到的其他业务模块是哪些？
+
+引导问题：
+> 你已经看到需求文档中提到“专家信息维护”，请问从业务角度，你觉得专家信息至少需要记录哪些字段？请结合常识列出3~5个字段名，给出你的答案。
+我
+哦
+AI
+本步目标
+
+将题目要求拆解为几个可独立完成的小任务，帮助你理解从请求到响应的完整数据流，并确定每层的职责与接口规划。
+
+资料依据
+
+- 引用[1]提到：需要独立完成“后端业务逻辑开发、数据持久层设计与RESTful API接口编写”，并强调“正确处理配置和整合Spring、Spring MVC、MyBatis”。
+- 引用[2]给出了前后端分离的总体架构图：Vue → HTTP/JSON → Spring MVC/Spring Boot → MyBatis/MyBatis-Plus → MySQL。
+- 引用[3]提供了一个具体的登录接口实现示例，包括Controller、接口路径、返回数据结构等。
+- 引用[4]说明了三层架构职责和Web请求完整流程。
+
+但目前缺少你本次要完成的具体题目内容（例如：实现用户模块的CRUD、实现登录接口、实现文章发布接口等），所以无法针对具体题目进行拆解。
+
+知识点拆解
+
+无论具体题目是什么，一个典型RESTful后端的实现通常包含以下四个子任务，你可以按照这个思路来规划：
+
+1. 定义接口路径与请求方式（Controller层）
+- 确定URL、HTTP方法（GET/POST/PUT/DELETE）、请求参数和响应格式。
+
+2. 编写业务逻辑（Service层）
+- 处理数据校验、权限检查、调用持久层等。
+
+3. 数据持久化（Mapper层）
+- 使用MyBatis-Plus操作数据库，编写实体类、Mapper接口、XML映射或注解SQL。
+
+4. 配置与调试（全局配置与测试）
+- 配置数据源、事务、跨域；使用Postman或Swagger调试接口。
+
+参考[2]中的技术方案，每一层都对应特定的技术组件，且数据流依次为：
+浏览器 → Controller（接收请求） → Service（业务处理） → Mapper（数据库操作） → 返回结果
+
+局部示例与逐行解析
+
+假设题目是实现一个“用户登录接口”，参考[3]给出的具体实现，我们可以这样拆解（注意：你的题目可能不同，仅作为参考）：
+
+子任务1：定义Controller接口
+
+@RestController       // 1. 标记为REST控制器，自动返回JSON
+@RequestMapping("/auth")  // 2. 接口统一前缀 /auth
+public class AuthController {
+    @PostMapping("/login")  // 3. 处理POST请求，路径为 /auth/login
+    public Result login(@RequestBody LoginRequest request) {  // 4. 接收JSON请求体
+        // 5. 调用Service层处理登录逻辑
+        return authService.login(request.getUsername(), request.getPassword());
     }
-  ]
 }
 
-前端只负责渲染：
+逐行解释：
+- @RestController：将类标记为控制器，所有方法返回的数据自动转换为JSON。
+- @RequestMapping("/auth")：设置该控制器下所有接口的公共路径前缀。
+- @PostMapping("/login")：指定该方法处理 POST 类型的请求，路径为 /auth/login。
+- Result login(...): 定义方法，返回统一结果对象 Result，便于前端统一处理。
+- @RequestBody LoginRequest request：将请求体中的JSON自动绑定到 LoginRequest DTO中。
+- 方法体内仅调用Service层，体现分层职责。
 
-已完成
-进行中
-未解锁
-需要修改
-已退回
+子任务2：实现Service层
 
-这样页面就不是写死的，换成 springboot-course-12 也一样能跑。
+@Service                    // 1. 标记为业务层组件
+public class AuthService {
+    @Autowired
+    private UserMapper userMapper;  // 2. 注入数据访问对象
 
-4. 数据模型要先定下来
-
-你现在最该补的是这几个核心表或 collection。
-
-课程线表：course_lines
-id
-slug                  // springboot-course-12 / nongbo-admin-project
-title
-description
-target_audience
-tech_stack
-status
-created_at
-updated_at
-
-示例：
-
-{
-  "slug": "nongbo-admin-project",
-  "title": "农宝系统后台管理项目实训",
-  "description": "基于农宝系统知识管理、农产品管理等后台模块，引导学生完成 Spring Boot 后端开发。",
-  "techStack": ["Spring Boot", "MyBatis-Plus", "MySQL", "RESTful API"]
-}
-模块表：learning_modules
-id
-course_line_id
-title
-description
-business_context
-sort_order
-
-示例：
-
-{
-  "courseLineId": "nongbo-admin-project",
-  "title": "知识管理模块",
-  "businessContext": "农宝系统农科讲堂的前置后台模块，用于维护专家、课程内容。"
-}
-任务表：learning_tasks
-id
-module_id
-title
-task_type
-goal
-scenario
-instruction
-required_artifact_type
-difficulty
-sort_order
-unlock_policy
-
-示例：
-
-{
-  "id": "task_course_table_design",
-  "title": "课程表设计",
-  "taskType": "database_design",
-  "goal": "根据农科讲堂课程需求，设计课程表字段。",
-  "scenario": "农科讲堂需要展示推荐课程，并支持搜索、详情、收藏和浏览量排序。",
-  "instruction": "请先设计 course 表字段，不要直接生成完整项目代码。",
-  "requiredArtifactType": "sql_or_field_list",
-  "difficulty": 2
-}
-评分标准表：task_rubrics
-
-这是关键。
-你不想写死逻辑，就把判断标准做成数据。
-
-id
-task_id
-criterion_type
-name
-description
-weight
-required
-rule_config
-
-例如：
-
-[
-  {
-    "criterionType": "keyword",
-    "name": "核心字段完整性",
-    "weight": 30,
-    "required": true,
-    "ruleConfig": {
-      "keywords": ["id", "title", "content", "cover", "expert", "category", "view_count", "create_time"],
-      "minHit": 6
+    public Result login(String username, String password) {
+        // 3. 查询数据库
+        User user = userMapper.selectOne(Wrappers.<User>lambdaQuery()
+                        .eq(User::getUsername, username));
+        // 4. 校验密码、生成令牌等...
+        return Result.success(token);
     }
-  },
-  {
-    "criterionType": "concept",
-    "name": "业务关联理解",
-    "weight": 25,
-    "required": true,
-    "ruleConfig": {
-      "concepts": ["课程与专家关联", "课程分类", "浏览量排序", "课程详情"]
-    }
-  },
-  {
-    "criterionType": "llm_judge",
-    "name": "设计合理性",
-    "weight": 30,
-    "required": false,
-    "ruleConfig": {
-      "judgePrompt": "判断学生设计的课程表是否能支撑农科讲堂课程列表、详情、搜索、收藏和排序。"
-    }
-  },
-  {
-    "criterionType": "anti_shortcut",
-    "name": "防止直接抄完整答案",
-    "weight": 15,
-    "required": false,
-    "ruleConfig": {
-      "forbiddenPatterns": ["完整项目代码", "所有文件", "一键生成"]
-    }
-  }
-]
-
-后端只写一个通用 RubricEngine，根据 criterionType 调对应的检查器。
-
-5. LangGraph 不要按课程写死，要做一个通用 Tutor Graph
-
-你的 LangGraph 可以固定成一张通用图：
-
-load_task_context
-        ↓
-retrieve_learning_evidence
-        ↓
-classify_student_intent
-        ↓
-route:
-   ├── hint_mode
-   ├── explain_mode
-   ├── check_submission_mode
-   ├── reflection_mode
-   └── free_chat_mode
-        ↓
-generate_feedback
-        ↓
-score_with_rubric
-        ↓
-decide_progress
-        ↓
-persist_learning_event
-        ↓
-return_response
-
-注意：
-Graph 是固定的，但 task context 是动态的。
-
-每次请求都带：
-
-{
-  "courseLineId": "nongbo-admin-project",
-  "moduleId": "knowledge-management",
-  "taskId": "task_course_table_design",
-  "studentId": "stu_001",
-  "studentInput": "id, title, content, teacherName"
 }
 
-Graph 先从数据库加载这个任务的目标、要求、评分规则，再去 RAG 检索资料，然后再让 AI 反馈。
+逐行解释：
+- @Service：声明该类是Spring管理的业务服务。
+- @Autowired private UserMapper：依赖注入Mapper接口，用于数据库操作。
+- userMapper.selectOne(...)：使用MyBatis-Plus的条件构造器查询单条记录。
+- 返回 Result.success(token) 封装成功结果。
 
-6. /api/ai/check 应该独立于 /api/chat
+子任务3：定义Mapper与实体
 
-你说的这点非常重要。
-聊天和验收是两种不同契约，不能混在一起。
-
-建议接口这样分：
-
-POST /api/ai/chat       普通 AI 助教对话
-POST /api/ai/check      提交当前任务给 AI 检查
-POST /api/ai/hint       当前任务提示
-POST /api/ai/reflect    学习反思与总结
-POST /api/ai/explain    解释知识点
-
-其中最重要的是：
-
-POST /api/ai/check
-
-请求：
-
-{
-  "courseLineId": "nongbo-admin-project",
-  "moduleId": "knowledge-management",
-  "taskId": "task_course_table_design",
-  "studentId": "stu_001",
-  "artifactType": "database_design",
-  "studentInput": "id, title, content, teacherName",
-  "attachments": [],
-  "chatHistory": []
+@Mapper                // 1. 标记为MyBatis-Plus映射器
+public interface UserMapper extends BaseMapper<User> {
+    // 2. 继承BaseMapper后自动拥有CRUD方法
 }
 
-返回：
+@Data                   // 3. Lombok自动生成getter/setter
+@TableName("sys_user")  // 4. 指定数据库表名
+public class User {
+    private Long id;
+    private String username;
+    private String password;
+    // 其他字段...
+}
 
-{
-  "passed": false,
-  "score": 58,
-  "level": "needs_revision",
-  "reply": "你的字段设计已经包含标题、正文和教师名称，但还不能完整支撑农科讲堂课程业务。",
-  "strengths": [
-    "已经识别出课程标题和课程内容。"
-  ],
-  "problems": [
-    {
-      "type": "missing_field",
-      "message": "缺少封面图字段，课程列表页需要展示封面图。",
-      "suggestion": "可以补充 cover_url。"
-    },
-    {
-      "type": "missing_relation",
-      "message": "缺少专家关联字段，农科讲堂课程需要展示作者/专家。",
-      "suggestion": "可以补充 expert_id 或 teacher_id。"
+逐行解释：
+- @Mapper：让Spring识别并创建代理对象。
+- extends BaseMapper<User>：继承通用Mapper，无需手写SQL即可完成常用操作。
+- @Data：Lombok注解，自动生成toString、equals、hashCode、getter/setter。
+- @TableName("sys_user")：告知MyBatis-Plus实体类对应的数据库表名。
+
+子任务4：配置与测试
+
+在application.yml中配置数据源：
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/nongbao
+    username: root
+    password: 123456
+
+然后使用Postman向 POST http://localhost:8080/auth/login 发送JSON请求体，验证结果。
+
+你现在要完成的小任务
+
+请确认你本次要实现的题目具体是什么？（例如：用户登录、文章发布、商品列表等）
+
+如果题目已确定，请按照上面的分层思路，先说出你打算为Controller层设计哪些接口路径和请求方法。
+如果还不清楚，请先在右侧输入框中描述你的题目内容，我再帮你拆解。
+我
+哦
+AI
+本步目标
+
+将题目拆解为可独立完成的小步骤（如：分析需求→设计数据表→编写Controller→编写Service→编写Mapper→测试接口），但当前没有获得题目的具体描述，无法进行拆解。
+
+资料依据
+
+现有资料均为通用课程标准和项目文档，没有包含当前题目（学生仅输入“哦”）的具体题干、功能需求或业务场景，因此无法基于引用资料进行拆解。
+
+- 引用资料[1] 和 [4] 仅说明总体能力目标（如分层设计、MyBatis-Plus技术栈、接口编写），未涉及具体题目。
+- 引用资料[2] 描述了前后端分离架构和技术选型，未涉及题目。
+- 引用资料[3] 和 [5] 是登录接口实现和 Pinia 使用示例，也未对应本题。
+
+知识点拆解
+
+如果有了题目，一般按以下逻辑拆解：
+1. 理解需求 → 分层（Controller/Service/Mapper/实体）
+2. 确定 RESTful 接口路径（如 /api/xxx）
+3. 数据流：请求→Controller→Service→Mapper→数据库→返回
+
+但当前缺少题目内容，无法进行具体拆解。
+
+局部示例与逐行解析
+
+暂无示例，因为不知道要做什么功能。
+
+你现在要完成的小任务
+
+请先输入题目描述（如：需要实现什么功能的接口？是查询、新增、修改还是删除？操作哪张数据表？）。
+
+例如：“实现用户管理模块的查询用户列表接口” 这样我才能根据引用资料和题目要求，为你拆解出第一步该做什么。
+我
+哦
+AI
+本步目标
+
+将“发布题目”这个模糊需求，拆解为后端开发的若干可独立完成的小步骤，帮助你明确接下来每一步该做什么，而不是直接写完整代码。
+
+资料依据
+
+- 课程目标要求“独立完成一个模块的后端业务逻辑开发、数据持久层设计与RESTful API接口编写”（引用[1]）。
+- 项目总体架构是前端Vue → 后端Spring Boot → MyBatis-Plus → MySQL（引用[2]）。
+- 已有登录接口的实现参考了Controller、Service、Mapper分层，如AuthController.java（引用[3]）。
+- 三层架构职责：Controller接收请求、Service处理业务、Mapper操作数据库（引用[4]）。
+
+知识点拆解
+
+发布题目功能可以拆解为以下5个独立的小任务（步骤），每个任务关注一个层次：
+
+| 小任务 | 涉及层 | 核心知识点 | 对应资料 |
+|--------|--------|------------|----------|
+| 1. 设计数据库表 | 数据层 | 字段类型、主键策略 | [1] “数据持久层设计” |
+| 2. 编写实体类（Entity） | 数据层 | @TableName、@TableId、@TableField | [2] MyBatis-Plus |
+| 3. 编写Mapper接口 | 持久层 | @Mapper、BaseMapper、SQL注解/XML | [1] “MyBatis-Plus” |
+| 4. 编写Service层 | 业务层 | @Service、接口与实现分离、事务 | [4] 三层架构职责 |
+| 5. 编写Controller层 | 表现层 | @RestController、请求映射、参数校验 | [3] AuthController示例 |
+
+局部示例与逐行解析
+
+以已有的登录接口（引用[3]）为例，只给出Controller层的骨架，展示分层写法：
+
+@RestController                    // 标记为REST控制器，返回JSON
+@RequestMapping("/api/auth")       // 所有请求以/api/auth开头
+public class AuthController {
+
+    @PostMapping("/login")          // 处理POST /api/auth/login
+    public Result login(@RequestBody LoginDTO dto) {  // 接收前端JSON参数
+        // 调用Service层验证账号密码
+        // 省略具体实现（本步不展开）
+        return Result.success(token); // 返回封装结果
     }
-  ],
-  "nextActions": [
-    "补充课程分类字段。",
-    "补充浏览量和发布时间字段。",
-    "说明课程表和专家表之间的关系。"
-  ],
-  "evidence": [
-    {
-      "source": "农宝系统需求规格说明书",
-      "title": "农科讲堂功能需求",
-      "content": "农科讲堂展示推荐专家、课程，农户可以查看推荐专家列表及课程。"
-    }
-  ],
-  "nextTaskUnlocked": false
 }
 
-这个返回就能直接驱动前端页面。
-
-7. passed 和 score 不要完全交给大模型
-
-你说得很对：
-不要让 AI 单独决定是否解锁下一步。
-
-更稳的做法是：
-
-最终得分 = 规则得分 × 60% + AI 评价得分 × 40%
-
-或者：
-
-最终 passed = 必选规则全部通过 && 综合分 >= 70
-
-比如：
-
-def decide_passed(rule_score: int, llm_score: int, critical_failed: bool) -> bool:
-    final_score = int(rule_score * 0.6 + llm_score * 0.4)
-
-    if critical_failed:
-        return False
-
-    return final_score >= 70
-
-这样做有三个好处：
-
-1. demo 现场更稳定
-2. 不会被模型一句话误判
-3. 更像真实教学评价系统
-
-职业技能标准里本身也强调 JavaWeb 开发要能完成数据库、Spring MVC、JSON 交互、Spring/Spring MVC/MyBatis 整合开发等具体能力项，所以这些能力完全可以拆成可检查的 rubric，而不是只靠 AI 主观判断。
-
-8. 你的任务配置可以这样写，不算“写死”
-
-你可以用 YAML / JSON 做课程任务种子数据。
-这不是写死逻辑，而是课程内容配置化。
-
-例如 nongbo-admin-project.yaml：
-
-courseLine:
-  slug: nongbo-admin-project
-  title: 农宝系统后台管理项目实训
-  description: 基于农宝系统需求，完成知识管理、农产品管理等后台模块开发。
-  techStack:
-    - Spring Boot
-    - MyBatis-Plus
-    - MySQL
-    - RESTful API
-
-modules:
-  - slug: knowledge-management
-    title: 知识管理模块
-    businessContext: >
-      农科讲堂前置模块，后台需要维护专家和课程内容，前台用于展示推荐专家、
-      推荐课程、课程详情、搜索和学习观看。
-
-    tasks:
-      - slug: requirement-understanding
-        title: 需求理解
-        type: analysis
-        goal: 理解农科讲堂课程管理模块需要支撑哪些业务功能。
-        instruction: >
-          请根据农宝系统需求，用自己的话说明农科讲堂课程管理至少需要支持哪些功能。
-          不要直接写代码。
-        requiredArtifactType: text
-        unlockPolicy:
-          minScore: 70
-          requireCriticalCriteria: true
-        rubrics:
-          - type: concept
-            name: 功能识别
-            weight: 40
-            required: true
-            config:
-              concepts:
-                - 课程列表
-                - 课程详情
-                - 搜索
-                - 推荐课程
-                - 专家关联
-                - 在线学习或观看
-              minHit: 4
-
-          - type: rag_grounded
-            name: 需求依据
-            weight: 30
-            required: true
-            config:
-              evidenceQueries:
-                - 农科讲堂 推荐专家 课程 搜索 课程详情
-                - 知识管理 专家 课程 内容
-
-          - type: llm_judge
-            name: 表达完整性
-            weight: 30
-            required: false
-            config:
-              judgePrompt: 判断学生是否理解了农科讲堂课程管理的业务边界。
-
-      - slug: course-table-design
-        title: 数据库设计
-        type: database_design
-        goal: 设计 course 表，支撑课程列表、详情、搜索、推荐和排序。
-        instruction: >
-          请设计课程表字段，并说明每个字段的作用。
-          暂时不需要写完整建表 SQL。
-        requiredArtifactType: field_list
-        unlockPolicy:
-          minScore: 75
-          requireCriticalCriteria: true
-        rubrics:
-          - type: keyword
-            name: 核心字段
-            weight: 35
-            required: true
-            config:
-              keywords:
-                - id
-                - title
-                - content
-                - cover
-                - expert
-                - category
-                - view_count
-                - create_time
-              minHit: 6
-
-          - type: concept
-            name: 业务支撑能力
-            weight: 35
-            required: true
-            config:
-              concepts:
-                - 课程与专家关联
-                - 课程列表展示
-                - 课程详情展示
-                - 搜索
-                - 浏览量排序
-              minHit: 3
-
-          - type: llm_judge
-            name: 设计合理性
-            weight: 30
-            required: false
-            config:
-              judgePrompt: 判断该表结构是否能支撑农科讲堂课程管理的基本业务。
-
-这就不是在代码里写死。
-以后老师要新增“农产品管理模块”，你只需要新增 YAML 或在教师看板里配置任务，不需要改 LangGraph。
-
-9. FastAPI 里可以这样组织代码
-
-建议目录结构类似这样：
-
-backend/
-  app/
-    api/
-      routes_ai.py
-      routes_course_lines.py
-      routes_teacher.py
-      routes_student.py
-
-    core/
-      config.py
-      errors.py
-
-    models/
-      course_line.py
-      learning_task.py
-      rubric.py
-      submission.py
-      ai_event.py
-
-    services/
-      course_runtime_service.py
-      progress_service.py
-      rag_service.py
-      rubric_engine.py
-      llm_service.py
-
-    graphs/
-      tutor_graph.py
-      states.py
-      nodes/
-        load_context.py
-        retrieve_evidence.py
-        classify_intent.py
-        generate_hint.py
-        evaluate_submission.py
-        generate_feedback.py
-        decide_progress.py
-        persist_event.py
-
-    schemas/
-      ai.py
-      course.py
-      rubric.py
-      student.py
-
-重点是把几层拆开：
-
-routes 只收请求
-service 负责业务
-graph 负责任务流转
-rubric_engine 负责评分
-rag_service 负责检索
-llm_service 负责调用模型
-
-这样项目会显得很工程化。
-
-10. LangGraph state 可以这样设计
-from typing import Any, Literal, Optional
-from pydantic import BaseModel, Field
-
-
-class EvidenceChunk(BaseModel):
-    source: str
-    title: str
-    content: str
-    score: float | None = None
-
-
-class RubricScore(BaseModel):
-    criterion_id: str
-    name: str
-    passed: bool
-    score: int
-    reason: str
-
-
-class TutorState(BaseModel):
-    course_line_id: str
-    module_id: str
-    task_id: str
-    student_id: str
-
-    student_input: str
-    artifact_type: str | None = None
-    chat_history: list[dict[str, Any]] = Field(default_factory=list)
-
-    task_context: dict[str, Any] = Field(default_factory=dict)
-    rubrics: list[dict[str, Any]] = Field(default_factory=list)
-    evidence: list[EvidenceChunk] = Field(default_factory=list)
-
-    intent: Literal[
-        "chat",
-        "hint",
-        "check_submission",
-        "explain",
-        "reflect"
-    ] = "chat"
-
-    rule_scores: list[RubricScore] = Field(default_factory=list)
-    llm_feedback: dict[str, Any] = Field(default_factory=dict)
-
-    final_score: int = 0
-    passed: bool = False
-    next_task_unlocked: bool = False
-
-    response: dict[str, Any] = Field(default_factory=dict)
-
-Graph 永远处理这份 state。
-至于当前是 SpringBoot 课程，还是农宝后台项目，都从 course_line_id 动态加载。
-
-11. RubricEngine 要通用
-
-你可以先支持这几类 criterion：
-
-keyword          关键词命中
-regex            正则检查
-concept          概念覆盖
-rag_grounded     是否引用/贴合资料
-code_pattern     代码结构检查
-api_design       接口设计检查
-sql_design       数据库设计检查
-llm_judge        大模型主观评价
-anti_shortcut    防止直接整包生成
-
-一个通用入口：
-
-class RubricEngine:
-    async def evaluate(
-        self,
-        student_input: str,
-        rubrics: list[dict],
-        task_context: dict,
-        evidence: list[EvidenceChunk],
-    ) -> tuple[list[RubricScore], int, bool]:
-        scores: list[RubricScore] = []
-
-        for rubric in rubrics:
-            criterion_type = rubric["type"]
-
-            if criterion_type == "keyword":
-                score = self._check_keywords(student_input, rubric)
-
-            elif criterion_type == "regex":
-                score = self._check_regex(student_input, rubric)
-
-            elif criterion_type == "concept":
-                score = await self._check_concepts(student_input, rubric)
-
-            elif criterion_type == "llm_judge":
-                score = await self._llm_judge(student_input, rubric, task_context, evidence)
-
-            elif criterion_type == "anti_shortcut":
-                score = self._check_anti_shortcut(student_input, rubric)
-
-            else:
-                score = RubricScore(
-                    criterion_id=rubric["id"],
-                    name=rubric["name"],
-                    passed=False,
-                    score=0,
-                    reason=f"暂不支持的评分类型：{criterion_type}"
-                )
-
-            scores.append(score)
-
-        final_score = self._weighted_score(scores, rubrics)
-        critical_failed = self._has_critical_failed(scores, rubrics)
-        passed = final_score >= task_context.get("unlockPolicy", {}).get("minScore", 70) and not critical_failed
-
-        return scores, final_score, passed
-
-这样以后新增任务不改主流程，只加 rubric。
-
-12. 前端页面要改成“数据驱动驾驶舱”
-
-你现在的 Vue 页面可以保持产品级，不要做过度花哨的营销风。建议结构是：
-
-┌───────────────────────────────────────────────────────────────┐
-│ 顶部：课程线 / 当前模块 / 学习进度 / AI 状态 / 教师入口          │
-├───────────────┬───────────────────────────────┬───────────────┤
-│ 左侧学习地图   │ 中间任务工作台                  │ 右侧 AI 助教    │
-│               │                               │               │
-│ 动态任务树     │ 当前任务说明                    │ 对话           │
-│ 模块进度       │ 资料依据                        │ 提示           │
-│ 解锁状态       │ 学生提交区                      │ 检查反馈       │
-│ 能力点标签     │ 代码/SQL/文本编辑区              │ 引用来源       │
-│               │ AI 检查结果                     │ 下一步建议     │
-└───────────────┴───────────────────────────────┴───────────────┘
-
-前端组件可以拆成：
-
-StudentWorkbench.vue
-CourseLineSelector.vue
-LearningMap.vue
-TaskWorkspace.vue
-ArtifactEditor.vue
-AICopilotPanel.vue
-RubricScorePanel.vue
-EvidencePanel.vue
-ProgressTimeline.vue
-LearningReportDrawer.vue
-
-重点是：
-
-LearningMap 不写死步骤
-TaskWorkspace 不写死任务说明
-RubricScorePanel 不写死评分项
-EvidencePanel 不写死资料来源
-
-全部从后端返回。
-
-13. 教师看板是你的产品亮点
-
-既然已经不是 demo，就一定要有教师端。
-教师端不用做得特别复杂，但至少要有这几个能力：
-
-1. 查看课程线
-2. 查看模块任务
-3. 编辑任务目标和任务说明
-4. 编辑评分规则 rubric
-5. 查看学生提交记录
-6. 查看 AI 反馈和通过率
-7. 查看哪些任务学生卡住最多
-
-教师看板可以这样展示：
-
-课程线：农宝系统后台管理项目实训
-
-模块通过率：
-知识管理模块：68%
-农产品管理模块：42%
-用户管理模块：75%
-
-学生卡点 Top 5：
-1. 数据库字段设计不完整
-2. Controller 路径不符合 RESTful
-3. Service 和 Mapper 职责混乱
-4. MyBatis-Plus 分页不会写
-5. 需求和代码对应不上
-
-这比单纯“AI 聊天”高级很多。
-
-课程标准里本来就强调混合式教学、课前课中课后、平台发布任务、批改编程作业、讨论答疑和学习数据支撑，所以教师看板能很好地解释你的系统为什么是“AI 教学改革”，而不是普通聊天机器人。
-
-14. 真实错误不要 fake/mock，这是对的
-
-你提到 AGENTS 规则要求 DeepSeek 不可用时返回真实错误，这个很合理。
-现在既然是产品，不建议再做“无 Key mock 回答”。
-
-可以这样处理：
-
-{
-  "success": false,
-  "errorCode": "LLM_PROVIDER_UNAVAILABLE",
-  "message": "DeepSeek 服务不可用，请检查 API Key、网络或模型配置。",
-  "fallbackAvailable": false
-}
-
-前端显示：
-
-AI 服务暂不可用
-请检查后端模型配置或稍后重试
-
-但注意：
-RAG 检索、任务展示、历史记录、rubric 规则检查可以继续运行。
-
-也就是说，即使模型挂了，系统也不至于整个白屏。
-
-15. 你现在最该做的不是找 GitHub，而是补这 5 个 PR
-
-你可以按这个顺序改现有项目。
-
-PR 1：课程线运行时接口
-
-新增：
-
-GET /api/course-lines
-GET /api/course-lines/{id}
-GET /api/course-lines/{id}/learning-map
-GET /api/tasks/{taskId}
-
-目标：
-前端学习地图从后端动态加载。
-
-PR 2：任务与 rubric 数据模型
-
-新增：
-
-learning_tasks
-task_rubrics
-task_resources
-unlock_policies
-
-目标：
-把任务、评分标准、资料引用从代码里挪到数据库。
-
-PR 3：/api/ai/check
-
-新增：
-
-POST /api/ai/check
-
-流程：
-
-加载任务
-加载 rubric
-检索 RAG 证据
-规则评分
-LLM 反馈
-合成最终结果
-保存学习事件
-返回结构化结果
-
-目标：
-让“检查提交”成为稳定产品能力。
-
-PR 4：学生工作台改造成数据驱动
-
-前端改：
-
-左侧学习地图从 API 获取
-中间任务说明从 API 获取
-右侧 AI 助教调用 /api/ai/chat
-提交检查调用 /api/ai/check
-评分面板根据返回结果渲染
-
-目标：
-页面看起来像真实 AI 实训平台。
-
-PR 5：教师看板增加任务编辑和学习分析
-
-新增：
-
-任务配置
-rubric 配置
-学生提交记录
-通过率
-平均分
-高频问题
-
-目标：
-让老师看到“可教学、可管理、可评价”。
-
-16. 你可以这样理解 LangGraph 在这里的价值
-
-不要把 LangGraph 用成简单链式调用：
-
-RAG → Prompt → LLM → 返回
-
-那样体现不出你的项目优势。
-
-你应该让 LangGraph 体现“教学决策流”：
-
-学生是在问问题？
-还是要提示？
-还是提交作业？
-还是要求 AI 直接给完整答案？
-还是要解释报错？
-还是要复盘学习？
-
-不同意图走不同节点：
-
-chat → 正常答疑
-hint → 只给提示，不给完整答案
-check → 严格按 rubric 验收
-explain_error → 解释错误并要求学生修正
-anti_shortcut → 拒绝整包代码，拆成当前任务
-reflect → 生成学习总结
-
-这样老师会感觉你的系统真的在“教学”，不是套了一个聊天框。
-
-17. AI Prompt 要改成“课程运行时 Prompt”
-
-不要写死“农宝系统”在系统 prompt 里。
-系统 prompt 应该是通用的：
-
-你是一个面向软件工程课程的 AI 实训助教。
-
-你正在辅助学生完成一个项目式学习任务。
-你不能一次性替学生完成完整项目。
-你必须根据当前任务目标、评分标准、课程资料和学生提交内容进行引导。
-
-教学原则：
-1. 优先引导学生思考，而不是直接给完整答案。
-2. 只围绕当前任务回答。
-3. 对代码、SQL、接口设计要指出问题、原因和修改建议。
-4. 如果学生要求生成完整项目或完整文件夹，要拒绝，并拆解为当前任务的下一步。
-5. 反馈必须结合任务目标和评分标准。
-6. 如果引用资料，请说明依据来自哪份资料。
-7. 返回结构化 JSON，不要输出多余文本。
-
-然后动态注入：
-
-当前课程线：{course_line.title}
-当前模块：{module.title}
-当前任务：{task.title}
-任务目标：{task.goal}
-任务说明：{task.instruction}
-评分标准：{rubrics}
-RAG 检索资料：{evidence}
-学生提交：{student_input}
-
-这样就可以同时适配：
-
-springboot-course-12
-nongbo-admin-project
-未来其他课程线
-
-
-19. 你现在的核心卖点应该改成这 4 个
-
-不要再说“炫酷页面”。
-你要说：
-
-1. 可配置课程线
-不是写死 demo，支持多课程、多项目、多模块扩展。
-
-2. AI 实训助教
-不是直接生成代码，而是按任务目标和评分标准引导学生完成。
-
-3. RAG 证据增强
-回答和检查基于课程标准、项目需求、职业技能标准和学生历史提交。
-
-4. 过程性评价
-记录学生每次提交、AI 反馈、通过情况、卡点问题，教师端可查看学习分析。
-
-这就是一个产品级方案。
+
+每行作用说明：
+- @RestController：Spring MVC注解，表示该类处理HTTP请求并自动返回JSON。
+- @RequestMapping("/api/auth")：定义该控制器所有接口的公共路径前缀，便于统一管理。
+- @PostMapping("/login")：指定HTTP方法为POST，路径为/login，与前端请求匹配。
+- public Result login(...)：返回类型Result是通用响应体，包含code、msg、data。
+- @RequestBody LoginDTO dto：将前端请求体JSON自动转换成Java对象LoginDTO（包含account、password等字段）。
+
+这个示例说明：每个Controller只负责接收请求和返回结果，具体逻辑交给Service层。
+
+你现在要完成的小任务
+
+请根据上面拆解的第1个任务，回答：“发布题目”需要存储哪些字段？请用文字列出至少4个你认为必需的字段（例如：题目内容、选项、正确答案等）。 这步是为了帮助设计数据库表，后续所有代码都依赖这个表结构。
+我
+题目内容、选项、正确答案等
+AI
+本步目标
+
+将上一环节整理的依据（数据库表结构、业务逻辑等）与知识点，转化为结构化、有证据支撑的答案草稿。你需要输出清晰的要点，并反思回答是否完整。
+
+资料依据
+
+当前引用资料仅包含 nb_allowance_policy、nb_credit_loan、test_user 三张表的字段定义（字段名、类型、注释）。你未提供具体的题目内容、选项及正确答案，因此无法基于资料直接组织答案要点。请先补充题目完整信息（题干、各选项、正确答案），否则难以给出针对性指导。
+
+知识点拆解
+
+- 结构化表达：将答案按“结论 → 依据 → 分析”分层组织。例如：“正确答案是 X，因为表结构中 Y 字段对应业务 Z，同时约束条件 A 排除了选项 B。”
+- 证据支撑：必须引用表字段名、数据类型、约束（如 NOT NULL、AUTO_INCREMENT）等具体细节，避免空泛。
+- 反思复盘：检查每个选项是否被准确排除或确认，是否有遗漏的判断依据（如主键、注释含义）。
+
+局部示例与逐行解析
+
+（这里仅做结构示范，非本题答案）
+
+要点1：正确答案为选项C
+要点2：依据：
+  - nb_allowance_policy.id 字段为“政策ID”，唯一标识，符合选项C描述。
+  - 表无外键约束，选项A“需要关联用户表”错误。
+要点3：反思：选项D提到的“允许空值”与字段定义中的 NOT NULL 矛盾，故排除。
+
+- 第1行：直接给出结论，明确答案。
+- 第2-4行：用“依据”分列关键证据，每个证据指向具体表字段和业务含义。
+- 第5行：对错误选项进行反向验证，体现反思。
+
+你现在要完成的小任务
+
+请先在右侧代码/答案草稿框中补齐本题的完整题目内容（题干+所有选项+正确答案），我才能根据你的题目和数据库表结构，帮你组织结构化的答案要点。
+我
+好了
+AI
+本步目标
+
+在“组织答案要点”这一步，你需要把前面分析依据、相关知识以及自己的判断，整理成结构清晰、证据充分的最终答案。答案不能只是一个词或一句话，而应包含：
+- 你的结论（如选择的字段名、代码逻辑等）
+- 支撑结论的依据（引用表结构、文档或资料）
+- 对依据的解释（为什么这个字段/这段代码符合要求）
+- 可能的反思或备选思考（可选）
+
+资料依据
+
+当前引用资料中提供了 test_user 和 sys_config 两张表的字段定义，例如：
+- test_user.user_id：int NOT NULL AUTO_INCREMENT COMMENT '用户ID'
+- sys_config.id：varchar(50) NOT NULL COMMENT '配置ID'
+
+但没有提供你当前题目所对应的具体场景描述和题目要求，因此无法直接判断 ance_policy.id 是否正确，也无法据此组织答案要点。
+
+知识点拆解
+
+- 结构化表达：答案应有明确的层次，例如“结论→证据→解释→反思”。
+- 证据支撑：必须引用具体的表字段、数据库约束、代码片段或课程文档，不能凭空想象。
+- 反思复盘：检查自己的答案是否覆盖了所有要求，是否有遗漏或冲突（如数据类型不匹配、主键约束冲突等）。
+
+局部示例与逐行解析
+
+示例（假设题目要求是：从 test_user 表中选出可以作为用户唯一标识的字段，并说明理由）：
+
+我的答案：
+结论：选择 `user_id` 字段。
+依据：
+  - 引用 [1] `test_user` 表结构：`user_id int NOT NULL AUTO_INCREMENT COMMENT '用户ID'`
+  - 该字段为自增主键，且设为 `NOT NULL`，保证唯一性。
+解释：
+  - 主键约束自带唯一性，`AUTO_INCREMENT` 确保每次插入生成不同值，适合作为用户唯一标识。
+  - 相比之下，`username` 字段未设唯一约束且允许 NULL，不能保证唯一。
+反思：若需要其他表引用用户，可直接用 `user_id` 做外键，符合数据库设计规范。
+
+
+逐行解析：
+1. 结论：直接给出选中的字段名，明确答案。
+2. 依据：引用资料中的具体表结构，说明字段属性。
+3. 解释：用自己的语言分析为什么这些属性满足唯一标识的要求，并与备选字段对比。
+4. 反思：体现批判性思维，考虑实际应用场景中是否还有其他因素。
+
+注意：这个示例仅供你参考格式，请勿直接抄袭，必须基于你当前题目实际遇到的表结构和要求进行改写。
+
+你现在要完成的小任务
+
+你当前的回答“好了”和草稿中的“我的答案：ance_policy.id”都不是本步骤要求的“组织答案要点”。
+
+请你在右侧答案区补全以下内容（逐条写出）：
+1. 你的最终结论（具体字段名或代码逻辑是什么？）
+2. 至少 2 条引用资料中的依据（引用 [1]、[2] 等编号，并摘录相关字段或描述）
+3. 对依据的详细解释（为什么这些依据能支撑你的结论？）
+4. 一句话反思（你的答案有没有忽略什么潜在问题？）
+
+> ❗ 不要在回复里写“好了”“收到”“已完成”等空话，直接提交你组织好的答案要点。 我将在下一步（第 4/4 步）根据你提交的内容进行最终验证。
+
+引导问题：请先思考当前题目中需要你判断的是哪个表、哪个字段？你在草稿里写的 ance_policy.id 对应的表结构在引用资料中吗？如果不在，你能否从引用资料中找到其他更合适的字段？
+我
+好了
+AI
+本步目标
+
+将你前几步的分析整理成符合要求的完整答案。要求包含：最终结论（字段名或代码逻辑）、2条引用依据、详细解释、一句话反思。
+
+资料依据
+
+当前引用资料中仅包含 test_user 和 sys_config 两个表的字段结构 [1][2][4][5]，以及课程标准 [3] 和一个关于“好了”的词典解释 [6][7]。没有出现你草稿中的 ance_policy 表，因此我无法基于现有资料为你提供该字段的直接依据。
+根据课程要求，依据必须来自你已获取的资料（如数据库设计文档、代码注释等）。请你检查是否遗漏了包含 ance_policy 表的引用资料，或者你使用的字段名可能有误。
+
+知识点拆解
+
+- 结构化表达：答案需要按照“结论 → 依据 → 解释 → 反思”的清晰逻辑组织，每层独立且相互支撑。
+- 证据支撑：不能凭感觉写答案，必须引用具体资料中的字段名、注释、约束等作为证据。
+- 反思复盘：一句话总结你在这个步骤中容易出错的地方或学到的要点，比如“我最初忽略了主键自增属性，导致选了另一个字段”。
+
+局部示例与逐行解析
+
+假设你正在分析 test_user 表的主键字段（实际不是你的问题），以下是如何组织答案的示范：
+
+最终结论：user_id 是 test_user 表的主键。
+
+依据：
+1. [1] 中 user_id 字段定义为 int NOT NULL AUTO_INCREMENT。
+2. [1] 中 user_id 的 COMMENT 为“用户ID”，且无其他字段有主键标记。
+
+详细解释：
+- NOT NULL 保证不能为空，AUTO_INCREMENT 表示自增，这是关系型数据库中主键的典型特征。
+- 虽然资料未显式写 PRIMARY KEY 关键字，但 NOT NULL + AUTO_INCREMENT 在 MySQL 中通常隐含主键；同时 COMMENT “用户ID” 也表明它是标识字段。
+
+一句话反思：我一开始看到 username 也有 NOT NULL，但缺少自增，所以排除了它；今后要同时检查注释和约束条件。
+
+你现在要完成的小任务
+
+1. 确认你的最终结论 ance_policy.id 是否来自你拥有的其他资料？如果是，请将那段资料作为引用补充到答案中。
+2. 若没有该资料，请重新检查你在前几步中使用的表名或字段名是否正确（常见表名可能是 insurance_policy 或 policy）。
+3. 按照示例格式，补全你的答案的 依据、解释、反思 三个部分。
+
+引导问题：你是在哪个数据库文件中看到的 ance_policy 表？能否把它对应的 DDL 语句粘贴到右侧，让我们的分析有依据可循？
+我
+我不会,求你帮我
+AI
+本步目标
+
+这一步要求你把依据、知识点的判断整理成可提交的答案，具体包括：
+- 给出最终结论（字段名或代码逻辑）
+- 引用至少2条资料中的证据，并摘录相关字段或描述
+- 解释为什么这些证据能支撑结论
+- 写一句反思（你学到了什么/有什么需要改进）
+
+你当前在“答案草稿”中写了 我的答案：ance_policy.id，但引用资料中没有 ance_policy 表，所以这个结论没有资料支撑。别着急，我们先回到可用的资料上来。
+
+资料依据
+
+可用的资料有以下两张表的具体结构（[1]、[2] 是同一张表，[4]、[5] 是同一张表）：
+
+- test_user 表（引用 [1] 或 [2]）：
+user_id int NOT NULL AUTO_INCREMENT COMMENT '用户ID'
+username varchar(100) ... COMMENT '用户名称'
+
+- sys_config 表（引用 [4] 或 [5]）：
+id varchar(50) NOT NULL COMMENT '配置ID'
+config_name varchar(100) ... COMMENT '配置名称'
+
+这两张表都没有 ance_policy 字段，因此你之前写的 ance_policy.id 无法被上述引用资料支持。
+
+知识点拆解
+
+要组织完整的答案，你需要掌握：
+1. 结构化表达：结论 → 证据 → 解释 → 反思。
+2. 证据支撑：必须从引用资料中直接摘录字段名、类型、注释等原文。
+3. 反思复盘：根据当前步骤的学习或错误，写一句简短的改进点。
+
+局部示例与逐行解析
+
+假设题目是：“test_user 表的主键字段是什么？”（只是举例，实际题目需要你自行确认），那么答案可以这样组织：
+
+我的最终结论：test_user 表的主键字段是 `user_id`。
+
+依据：
+[1] 表 `test_user` 结构：`user_id` int NOT NULL AUTO_INCREMENT COMMENT '用户ID' —— AUTO_INCREMENT 表示自增主键。
+[2] 表 `test_user` 结构：`user_id` 是第一个字段，且标记为 NOT NULL 和 AUTO_INCREMENT，通常为主键。
+
+解释：在 MySQL 中，`AUTO_INCREMENT` 列通常是主键，且 `NOT NULL` 保证唯一性；表定义中 `user_id` 具有这些特征，因此是主键。
+
+一句话反思：我一开始误写了 `ance_policy.id`，因为没有先查看资料中的表结构，以后要先从引用中找证据。
+
+
+你现在要完成的小任务
+
+请回答以下问题，并填写到右侧答案草稿中：
+1. 你正在回答的具体题目是什么？（比如“test_user 表的主键字段是什么？”还是其他？）
+2. 根据你看到的引用资料，你能从 [1]-[5] 中找到几个字段/表结构的证据来支持你的答案？ 请至少列出两条。
+3. 修改你的答案草稿，把 ance_policy.id 替换成你从资料中找到的正确的字段名或代码逻辑。如果题目不明确，先告诉老师题目是什么。
+
+提示：资料中只有 test_user 和 sys_config 两张表，请先确定题目是基于哪张表、哪个字段。如果你不确定题目，可以告诉我你之前步骤的题目内容，我再帮你引导。
+我
+好了
+AI
+本步目标
+
+你的任务是把已确认的知识点、依据和思考过程，整理成清晰、有证据支撑的答案。你已经在右侧写好了结论、依据和反思，但仍需理解“主键”这个基础概念，并确认你的答案是否完整。
+
+资料依据
+
+根据引用资料[1]和[2]中 test_user 表定义：
+user_id int NOT NULL AUTO_INCREMENT COMMENT '用户ID'
+
+- NOT NULL 表示该字段不允许为空
+- AUTO_INCREMENT 表示字段值自动递增
+- 在MySQL中，既有 NOT NULL 又带有 AUTO_INCREMENT 的字段，通常被定义为主键（常见惯例，课程资料未明确定义，但数据库设计通用规则如此）
+
+知识点拆解
+
+主键（Primary Key） —— 通俗理解：
+主键是表中唯一标识每一行数据的“身份证号”。特征：
+1. 不能为空（NOT NULL）—— 每个人都要有身份证。
+2. 唯一不重复（通过 PRIMARY KEY 约束保证）—— 每个人身份证号不同。
+3. 常用于自增整数（AUTO_INCREMENT）—— 系统自动给新数据分配一个不重复的号码。
+
+在你的 test_user 表中，user_id 满足了这些特征，因此它就是主键。
+
+局部示例与逐行解析
+
+从资料中摘取 test_user 表的建表语句核心片段（仅展示主键相关部分）：
+
+user_id int NOT NULL AUTO_INCREMENT COMMENT '用户ID'
+
+- user_id：字段名，表示用户ID。
+- int：字段类型是整数。
+- NOT NULL：禁止为空，保证每行数据都有值。
+- AUTO_INCREMENT：自增属性，插入新行时不指定值，系统自动加1。
+- COMMENT '用户ID'：字段注释，帮助理解含义（实际建表时还会在最后加上 PRIMARY KEY (user_id) 明确声明为主键，但这段片段已足够推断主键身份）。
+
+你现在要完成的小任务
+
+你的右侧草稿已经完成，下一步（第4步）通常是提交最终答案或根据老师反馈修改。
+请确认：你是否需要补充其他字段（如 username）为什么不是主键的依据？如果答案已完整，请直接输入“提交”或“我已完成”。
+我
+提交
+AI
+本步目标
+
+在当前第3步“组织答案要点”中，你的目标是把前面分析出的依据、知识点和自己的判断，整理成一份结构清晰、证据充分的最终答案，准备好提交。
+
+资料依据
+
+关于什么是“提交”，参考资料[6]和[7]提供了通用解释：
+- 资料[6]（百度百科）指出：“提交是一个汉语词语……含义为提出并送交，常见于文件、申请等场景。”
+- 资料[7]（Linguee）也展示了在实际场景（如提交索赔）中“满足提交的条件”这一用法。
+
+注意：我们在课堂资料中的“提交”，就是指将你完成的答案（作为材料）通过系统界面“送交”给教师或系统，等待评价或反馈。在本步骤中，你的任务是先“整理完成答案”，再点击“提交”按钮完成这个动作。
+
+知识点拆解
+
+1. 结构化表达：需要把你的结论分成“结论是什么”、“证据是什么”、“推理过程是什么”三个部分，让别人一看就懂。比如你现在的草稿里，就很好地分成了“最终结论”、“依据”、“解释”三块。
+2. 证据支撑：不能只凭感觉说“xx是主键”，一定要引用资料原文（如AUTO_INCREMENT和NOT NULL）作为依据。你已经做到了这一点。
+3. 反思复盘：写完答案后，回头想想自己哪里出过错，比如你主动反思“一开始没看表结构就写错了”，这就是很好的复盘。
+
+局部示例与逐行解析
+
+你的答案草稿已经写得不错了！我们只看最后一句“一句话反思”的作用：
+
+我一开始误写了……以后要先从引用中找证据。
+- 这句话不是答案的主体，但体现了你的思考过程，展示了从“试错”到“正确”的成长，是评分中“学习品质”部分的重要加分项。
+
+你现在要完成的小任务
+
+你的答案结构（结论+依据+解释+反思）非常完整，已经符合“组织答案要点”的要求。现在请确认以下三点：
+1. 你对自己的结论“test_user 表的主键字段是 user_id”有100%的信心吗？
+2. 思考一下：除了 user_id 有 AUTO_INCREMENT 和 NOT NULL 特性，test_user 表中是否还有其他字段也可能被误认为是主键？(比如 username 为什么不能作主键？你可以用一句话加在“解释”里补充说明)
+3. 确认无误后，点击右侧的“提交”按钮，完成本步骤。

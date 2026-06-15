@@ -1,205 +1,399 @@
 <template>
-  <div class="workspace-scene">
-    <div class="grain-overlay" aria-hidden="true"></div>
-
-    <!-- 加载状态 -->
-    <div v-if="loading" class="loading-state">
-      <div class="loading-spinner"></div>
+  <div class="workspace-page">
+    <div v-if="loading" class="loading-state" role="status">
+      <Loader2 class="spin-icon" :size="22" />
       <span>正在加载任务...</span>
     </div>
 
+    <div v-else-if="loadError" class="empty-state" role="alert">
+      <AlertTriangle :size="24" />
+      <strong>任务加载失败</strong>
+      <p>{{ loadError }}</p>
+    </div>
+
     <template v-else-if="task">
-      <!-- 头部：任务信息 + 操作 -->
       <header class="task-header">
-        <div class="header-left">
-          <span class="eyebrow-tag">
-            <span class="tag-dot"></span>
-            {{ task.type }}
-          </span>
-          <h1 class="task-title">{{ task.title }}</h1>
-          <p class="task-goal">{{ task.goal }}</p>
+        <div class="task-copy">
+          <div class="task-meta">
+            <span>{{ taskTypeLabel(task.type) }}</span>
+            <span>{{ artifactTypeLabel(task.required_artifact_type) }}</span>
+          </div>
+          <h1>{{ task.title }}</h1>
+          <p>{{ task.goal }}</p>
         </div>
-        <div class="header-actions">
-          <button type="button" class="action-btn secondary" @click="getHint" :disabled="hintLoading">
-            <span v-if="hintLoading" class="btn-spinner"></span>
-            <span v-else class="btn-icon-inner">?</span>
+
+        <div class="header-actions" aria-label="任务操作">
+          <button
+            type="button"
+            class="icon-action secondary"
+            :disabled="hintLoading || guidedLoading"
+            aria-label="获取提示"
+            title="获取提示"
+            @click="getHint"
+          >
+            <Loader2 v-if="hintLoading" class="spin-icon" :size="17" />
+            <Lightbulb v-else :size="17" />
             <span>提示</span>
           </button>
-          <button type="button" class="action-btn dark" @click="submitCheck" :disabled="checkLoading || !codeInput.trim()">
-            <span v-if="checkLoading" class="btn-spinner"></span>
-            <span v-else class="btn-icon-inner">→</span>
+          <button
+            type="button"
+            class="icon-action primary"
+            :disabled="checkLoading || !codeInput.trim()"
+            aria-label="提交验收"
+            title="提交验收"
+            @click="submitCheck"
+          >
+            <Loader2 v-if="checkLoading" class="spin-icon" :size="17" />
+            <CheckCircle2 v-else :size="17" />
             <span>提交验收</span>
           </button>
         </div>
       </header>
 
-      <!-- 主体：对话 + 代码 双栏 -->
-      <div class="workspace-grid">
-        <!-- 左侧：AI 对话 -->
-        <section class="chat-panel">
-          <!-- 正在回答的题目状态栏 -->
-          <div v-if="activeQuestion" class="question-status-bar">
-            <div class="qsb-header">
-              <span class="qsb-badge">当前正在回答</span>
-              <span class="qsb-type">{{ qTypeLabel(activeQuestion.type) }}</span>
-              <button class="qsb-close" @click="clearActiveQuestion" title="关闭题目">✕</button>
+      <main class="workspace-grid">
+        <section class="dialogue-panel" aria-labelledby="guided-title">
+          <div v-if="activeQuestion" class="question-strip">
+            <div class="question-strip-head">
+              <span class="status-pill">已发布题目</span>
+              <span class="question-type">{{ qTypeLabel(activeQuestion.type) }}</span>
+              <button
+                type="button"
+                class="close-button"
+                aria-label="关闭当前题目"
+                title="关闭当前题目"
+                @click="clearActiveQuestion"
+              >
+                <X :size="16" />
+              </button>
             </div>
-            <p class="qsb-stem">{{ activeQuestion.stem }}</p>
-            <div v-if="activeQuestion.options?.length" class="qsb-options">
-              <span v-for="opt in activeQuestion.options" :key="opt.key" class="qsb-opt">
+            <p class="question-stem">{{ activeQuestion.stem }}</p>
+            <div v-if="activeQuestion.options?.length" class="option-list">
+              <span v-for="opt in activeQuestion.options" :key="opt.key">
                 {{ opt.key }}. {{ opt.text }}
               </span>
             </div>
           </div>
 
-          <div class="panel-header">
-            <span class="eyebrow-tag small">
-              <span class="tag-dot"></span>
-              AI 助教
-            </span>
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">
+                <Bot :size="15" />
+                智能体引导
+              </span>
+              <h2 id="guided-title">分步对话</h2>
+            </div>
+            <span v-if="guidedStatus" class="session-status">{{ guidedStatusLabel }}</span>
           </div>
 
-          <div class="chat-messages" ref="chatContainer">
-            <div v-for="(msg, i) in messages" :key="i" :class="['message', msg.role]">
-              <div class="message-avatar" v-if="msg.role === 'assistant'">
-                <span>AI</span>
+          <div v-if="guidedSteps.length" class="guided-stepper" aria-label="引导步骤进度">
+            <div class="stepper-top">
+              <strong>{{ currentStepTitle }}</strong>
+              <span>{{ guidedCurrentStep + 1 }} / {{ guidedTotalSteps || guidedSteps.length }}</span>
+            </div>
+            <div class="stepper-track" aria-hidden="true">
+              <span
+                v-for="(_, index) in guidedSteps"
+                :key="index"
+                :class="['step-dot', { active: index === guidedCurrentStep, done: index < guidedCurrentStep }]"
+              >
+                {{ index + 1 }}
+              </span>
+            </div>
+            <p v-if="currentStepGoal">{{ currentStepGoal }}</p>
+          </div>
+
+          <div v-if="guidedCitations.length" class="citation-strip" aria-label="参考资料">
+            <div v-for="item in guidedCitations" :key="`${item.kind}-${item.source}-${item.snippet}`" class="citation-item">
+              <span class="source-kind">{{ citationKindLabel(item.kind) }}</span>
+              <a
+                v-if="isUrl(item.source)"
+                :href="item.source"
+                target="_blank"
+                rel="noreferrer"
+              >
+                {{ item.title || shortSource(item.source) }}
+              </a>
+              <span v-else>{{ item.title || shortSource(item.source) }}</span>
+            </div>
+          </div>
+
+          <div ref="chatContainer" class="chat-messages" aria-live="polite">
+            <div v-if="!messages.length" class="empty-chat">
+              <Bot :size="22" />
+              <span>等待题目或提问</span>
+            </div>
+
+            <article
+              v-for="(msg, index) in messages"
+              :key="index"
+              :class="['message-row', msg.role]"
+            >
+              <div class="message-avatar" aria-hidden="true">
+                {{ msg.role === 'assistant' ? 'AI' : '我' }}
               </div>
               <div class="message-bubble">
                 <div class="message-content" v-html="renderMarkdown(msg.content)"></div>
               </div>
+            </article>
+
+            <div v-if="guidedLoading" class="message-row assistant">
+              <div class="message-avatar" aria-hidden="true">AI</div>
+              <div class="message-bubble pending">
+                <Loader2 class="spin-icon" :size="16" />
+                <span>正在检索资料并生成下一步...</span>
+              </div>
             </div>
-
           </div>
 
-          <div class="chat-input">
+          <form class="chat-input" @submit.prevent="sendMessage">
+            <label class="sr-only" for="student-question">向智能体提问</label>
             <textarea
+              id="student-question"
               v-model="userInput"
-              placeholder="输入你的问题... (Ctrl+Enter 发送)"
               rows="2"
-              @keydown.enter.ctrl="sendMessage"
+              placeholder="输入你的问题或当前思路"
+              aria-label="向智能体提问"
+              @keydown.enter.ctrl.prevent="sendMessage"
             ></textarea>
-            <button class="send-btn" @click="sendMessage" :disabled="!userInput.trim()">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M2 8h12M10 4l4 4-4 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
+            <button
+              type="submit"
+              class="send-button"
+              :disabled="!userInput.trim() || guidedLoading"
+              aria-label="发送消息"
+              title="发送"
+            >
+              <Send :size="17" />
             </button>
-          </div>
+          </form>
         </section>
 
-        <!-- 右侧：代码编辑 -->
-        <section class="code-panel">
-          <div class="panel-header">
-            <span class="eyebrow-tag small">
-              <span class="tag-dot"></span>
-              代码编辑
-            </span>
-            <span class="artifact-badge">{{ task.required_artifact_type }}</span>
-          </div>
-          <div class="code-editor-wrap">
-            <div class="editor-gutter">
-              <span v-for="n in 20" :key="n">{{ n }}</span>
+        <section class="answer-panel" aria-labelledby="answer-title">
+          <div class="panel-heading">
+            <div>
+              <span class="panel-kicker">
+                <Code2 :size="15" />
+                练习区
+              </span>
+              <h2 id="answer-title">代码 / 答案</h2>
             </div>
+            <span class="artifact-pill">{{ artifactTypeLabel(task.required_artifact_type) }}</span>
+          </div>
+
+          <div v-if="activeQuestion" class="answer-context">
+            <FileText :size="16" />
+            <span>{{ qTypeLabel(activeQuestion.type) }}</span>
+          </div>
+
+          <div class="editor-shell">
+            <div class="editor-gutter" aria-hidden="true">
+              <span v-for="n in 24" :key="n">{{ n }}</span>
+            </div>
+            <label class="sr-only" for="answer-editor">代码或答案输入区</label>
             <textarea
+              id="answer-editor"
               v-model="codeInput"
               class="code-editor"
-              placeholder="// 在此输入你的代码、SQL 或文字..."
               spellcheck="false"
+              aria-label="代码或答案输入区"
+              placeholder="// 在这里写你的代码、SQL 或文字答案"
             ></textarea>
           </div>
-        </section>
-      </div>
 
-      <!-- 评分面板 -->
-      <section v-if="checkResult" class="result-section">
+          <div class="editor-footer">
+            <span>{{ codeInput.length }} 字符</span>
+            <span>AI 验收会结合右侧内容与课程资料</span>
+          </div>
+        </section>
+      </main>
+
+      <section v-if="checkResult" class="result-section" aria-labelledby="result-title">
         <div class="result-header">
-          <h3>验收结果</h3>
+          <h2 id="result-title">验收结果</h2>
           <span :class="['result-badge', checkResult.level]">
-            {{ checkResult.passed ? '✓ 通过' : '✕ 需修改' }}
+            {{ checkResult.passed ? '通过' : '需修改' }}
           </span>
         </div>
 
-        <div class="result-body">
-          <div class="result-score-row">
-            <div class="score-circle">
-              <strong>{{ checkResult.score }}</strong>
-              <small>/ 100</small>
-            </div>
-            <p class="result-reply">{{ checkResult.reply }}</p>
+        <div class="score-row">
+          <div class="score-ring">
+            <strong>{{ checkResult.score }}</strong>
+            <span>/100</span>
           </div>
+          <p>{{ checkResult.reply }}</p>
+        </div>
 
-          <div class="result-details" v-if="checkResult.strengths.length || checkResult.problems.length || checkResult.nextActions.length">
-            <div class="detail-section" v-if="checkResult.strengths.length">
-              <h4>亮点</h4>
-              <ul>
-                <li v-for="(s, i) in checkResult.strengths" :key="i">{{ s }}</li>
-              </ul>
-            </div>
-            <div class="detail-section" v-if="checkResult.problems.length">
-              <h4>问题</h4>
-              <ul>
-                <li v-for="(p, i) in checkResult.problems" :key="i">
-                  <strong>{{ p.type }}:</strong> {{ p.message }}
-                  <em v-if="p.suggestion"> → {{ p.suggestion }}</em>
-                </li>
-              </ul>
-            </div>
-            <div class="detail-section" v-if="checkResult.nextActions.length">
-              <h4>下一步</h4>
-              <ul>
-                <li v-for="(a, i) in checkResult.nextActions" :key="i">{{ a }}</li>
-              </ul>
-            </div>
+        <div class="result-grid">
+          <div v-if="checkResult.strengths.length" class="result-block">
+            <h3>亮点</h3>
+            <ul>
+              <li v-for="(item, index) in checkResult.strengths" :key="index">{{ item }}</li>
+            </ul>
+          </div>
+          <div v-if="checkResult.problems.length" class="result-block">
+            <h3>问题</h3>
+            <ul>
+              <li v-for="(item, index) in checkResult.problems" :key="index">
+                <strong>{{ item.type }}</strong>
+                <span>{{ item.message }}</span>
+                <em v-if="item.suggestion">{{ item.suggestion }}</em>
+              </li>
+            </ul>
+          </div>
+          <div v-if="checkResult.nextActions.length" class="result-block">
+            <h3>下一步</h3>
+            <ul>
+              <li v-for="(item, index) in checkResult.nextActions" :key="index">{{ item }}</li>
+            </ul>
           </div>
         </div>
       </section>
     </template>
+
+    <div v-else class="empty-state">
+      <AlertTriangle :size="24" />
+      <strong>未找到任务</strong>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type LearningTaskDetail, type AICheckResult, type Question } from '../api'
+import {
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  Code2,
+  FileText,
+  Lightbulb,
+  Loader2,
+  Send,
+  X,
+} from 'lucide-vue-next'
+import { api, type AICheckResult, type Citation, type LearningTaskDetail, type Question } from '../api'
 import { useSessionStore } from '../stores/session'
+
+type ChatRole = 'assistant' | 'student'
+
+interface ChatMessage {
+  role: ChatRole
+  content: string
+}
+
+interface GuidedStep {
+  title: string
+  goal: string
+  knowledge_points: string[]
+}
+
+interface GuidedResponse {
+  sessionId: string
+  intent?: string
+  steps?: GuidedStep[]
+  currentStep: number
+  totalSteps: number
+  currentStepTitle?: string
+  message: string
+  citations?: Citation[]
+  status: string
+}
 
 const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 
 const loading = ref(true)
+const loadError = ref('')
 const task = ref<LearningTaskDetail | null>(null)
 const codeInput = ref('')
 const userInput = ref('')
-const messages = ref<Array<{ role: string; content: string }>>([])
+const messages = ref<ChatMessage[]>([])
 const chatContainer = ref<HTMLElement | null>(null)
 
 const checkLoading = ref(false)
 const hintLoading = ref(false)
+const guidedLoading = ref(false)
 const checkResult = ref<AICheckResult | null>(null)
 
-// Published question state
 const activeQuestion = ref<Question | null>(null)
+const guidedSessionId = ref('')
+const guidedIntent = ref('')
+const guidedStatus = ref('')
+const guidedSteps = ref<GuidedStep[]>([])
+const guidedCurrentStep = ref(0)
+const guidedTotalSteps = ref(0)
+const guidedCitations = ref<Citation[]>([])
 
-onMounted(async () => {
-  const taskId = route.params.taskId as string
-  if (taskId) {
-    task.value = await api.learningTask(taskId)
-  }
-  // Load active question from query param
-  const questionId = route.query.questionId as string | undefined
-  if (questionId && taskId) {
-    await loadActiveQuestion(taskId, questionId)
-  }
-  loading.value = false
+const studentId = computed(() => session.currentUser?.id || '')
+
+const currentStep = computed(() => guidedSteps.value[guidedCurrentStep.value])
+const currentStepTitle = computed(() => currentStep.value?.title || '当前步骤')
+const currentStepGoal = computed(() => currentStep.value?.goal || '')
+const guidedStatusLabel = computed(() => {
+  if (guidedStatus.value === 'completed') return '已完成'
+  if (guidedStatus.value === 'active') return '进行中'
+  if (guidedStatus.value === 'waiting') return '等待学生回应'
+  if (guidedStatus.value === 'teaching') return '引导中'
+  if (guidedStatus.value === 'planning') return '规划中'
+  return guidedStatus.value || '引导中'
 })
 
+onMounted(async () => {
+  const taskId = route.params.taskId as string | undefined
+  try {
+    if (!taskId) {
+      loadError.value = '缺少任务 ID'
+      return
+    }
+
+    task.value = await api.learningTask(taskId)
+    const questionId = firstQueryValue(route.query.questionId)
+    if (questionId) {
+      await loadActiveQuestion(taskId, questionId)
+      showQuestionIntro()
+    }
+  } catch (error: any) {
+    loadError.value = errorMessage(error)
+  } finally {
+    loading.value = false
+  }
+
+})
+
+function firstQueryValue(value: unknown): string | undefined {
+  if (Array.isArray(value)) return typeof value[0] === 'string' ? value[0] : undefined
+  return typeof value === 'string' ? value : undefined
+}
+
 function renderMarkdown(text: string): string {
-  return text
-    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="lang-$1">$2</code></pre>')
+  const blocks: string[] = []
+  let html = escapeHtml(text).replace(/```(\w*)\n([\s\S]*?)```/g, (_match, lang, code) => {
+    const language = lang ? ` class="lang-${lang}"` : ''
+    const index = blocks.length
+    blocks.push(`<pre><code${language}>${code}</code></pre>`)
+    return `@@CODE_BLOCK_${index}@@`
+  })
+
+  html = html
+    .replace(/^###\s+(.+)$/gm, '<h4>$1</h4>')
+    .replace(/^##\s+(.+)$/gm, '<h3>$1</h3>')
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
     .replace(/\n/g, '<br>')
+
+  blocks.forEach((block, index) => {
+    html = html.replace(`@@CODE_BLOCK_${index}@@`, block)
+  })
+  return html
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
 }
 
 async function scrollToBottom() {
@@ -210,713 +404,1559 @@ async function scrollToBottom() {
 }
 
 async function sendMessage() {
-  if (!userInput.value.trim() || !task.value) return
+  if (!userInput.value.trim() || !task.value || guidedLoading.value) return
+
   const question = userInput.value.trim()
   messages.value.push({ role: 'student', content: question })
   userInput.value = ''
   await scrollToBottom()
 
+  if (guidedSessionId.value || activeQuestion.value) {
+    if (guidedSessionId.value) {
+      await sendGuidedMessage(question)
+    } else {
+      await startGuidedSession(question)
+    }
+    return
+  }
+
   try {
     const res = await api.aiTaskChat({
       courseLineId: task.value.course_line_id,
       moduleId: task.value.module_id,
       taskId: task.value.id,
-      studentId: session.currentUser?.id,
+      studentId: studentId.value,
       question,
     })
     messages.value.push({ role: 'assistant', content: res.answer })
-  } catch (e: any) {
-    messages.value.push({ role: 'assistant', content: `错误: ${e.message}` })
+  } catch (error: any) {
+    messages.value.push({ role: 'assistant', content: `**请求失败**\n\n${errorMessage(error)}` })
   }
   await scrollToBottom()
 }
 
 async function getHint() {
-  if (!task.value) return
+  if (!task.value || hintLoading.value || guidedLoading.value) return
+
   hintLoading.value = true
   try {
-    const res = await api.aiTaskChat({
-      courseLineId: task.value.course_line_id,
-      moduleId: task.value.module_id,
-      taskId: task.value.id,
-      studentId: session.currentUser?.id,
-      question: '请给我一个提示',
-    })
-    messages.value.push({ role: 'assistant', content: res.answer })
+    const prompt = activeQuestion.value
+      ? `请只围绕当前发布题目给一点提示，不要改写成别的任务，也不要直接给完整答案。\n题干：${activeQuestion.value.stem}`
+      : '请只给我当前步骤的一点提示，不要直接给完整答案。'
+    if (guidedSessionId.value) {
+      await sendGuidedMessage(prompt)
+    } else if (activeQuestion.value) {
+      await startGuidedSession(prompt)
+    } else {
+      const res = await api.aiTaskChat({
+        courseLineId: task.value.course_line_id,
+        moduleId: task.value.module_id,
+        taskId: task.value.id,
+        studentId: studentId.value,
+        question: prompt,
+      })
+      messages.value.push({ role: 'assistant', content: res.answer })
+      await scrollToBottom()
+    }
+  } catch (error: any) {
+    messages.value.push({ role: 'assistant', content: `**提示生成失败**\n\n${errorMessage(error)}` })
     await scrollToBottom()
   } finally {
     hintLoading.value = false
   }
 }
 
+function showQuestionIntro() {
+  if (!activeQuestion.value) return
+  messages.value = [
+    {
+      role: 'assistant',
+      content: buildQuestionIntro(activeQuestion.value),
+    },
+  ]
+}
+
+function buildQuestionIntro(question: Question): string {
+  const optionText = question.options?.length
+    ? `\n\n选项：\n${question.options.map((item) => `- ${item.key}. ${item.text}`).join('\n')}`
+    : ''
+  const action = ['single_choice', 'multi_choice', 'true_false'].includes(question.type)
+    ? '请先阅读题干，在右侧“我的答案：”后填写选项字母。需要解释时点“提示”，我会只围绕这道题分步讲解。'
+    : '请先阅读题干，在右侧写出你的答案或代码片段。需要提示时点“提示”，我会只围绕这道题分步讲解。'
+
+  return `## 当前题目\n${question.stem}${optionText}\n\n## 你现在要完成的小任务\n${action}`
+}
+
+async function startGuidedSession(studentInput: string) {
+  if (!task.value) return
+
+  guidedLoading.value = true
+  let assistantIndex = -1
+  const ensureAssistantMessage = () => {
+    if (assistantIndex < 0) {
+      messages.value.push({ role: 'assistant', content: '' })
+      assistantIndex = messages.value.length - 1
+    }
+  }
+  try {
+    await api.streamGuidedStart(
+      {
+        courseLineId: task.value.course_line_id,
+        moduleId: task.value.module_id,
+        taskId: task.value.id,
+        studentId: studentId.value,
+        studentInput,
+        questionId: activeQuestion.value?.id,
+        codeDraft: codeInput.value,
+      },
+      {
+        onMetadata: applyGuidedMetadata,
+        onDelta: async (text) => {
+          ensureAssistantMessage()
+          messages.value[assistantIndex].content += text
+          await scrollToBottom()
+        },
+        onDone: (res) => finalizeGuidedResponse(res, assistantIndex),
+        onError: (data) => {
+          ensureAssistantMessage()
+          messages.value[assistantIndex].content = `**智能体启动失败**\n\n${data.message || '未知错误'}`
+        },
+      },
+    )
+  } catch (error: any) {
+    messages.value.push({ role: 'assistant', content: `**智能体启动失败**\n\n${errorMessage(error)}` })
+  } finally {
+    guidedLoading.value = false
+  }
+  await scrollToBottom()
+}
+
+async function sendGuidedMessage(message: string) {
+  if (!guidedSessionId.value) {
+    await startGuidedSession(message)
+    return
+  }
+
+  guidedLoading.value = true
+  let assistantIndex = -1
+  const ensureAssistantMessage = () => {
+    if (assistantIndex < 0) {
+      messages.value.push({ role: 'assistant', content: '' })
+      assistantIndex = messages.value.length - 1
+    }
+  }
+  try {
+    await api.streamGuidedMessage(
+      {
+        sessionId: guidedSessionId.value,
+        studentId: studentId.value,
+        message,
+        codeDraft: codeInput.value,
+      },
+      {
+        onMetadata: applyGuidedMetadata,
+        onDelta: async (text) => {
+          ensureAssistantMessage()
+          messages.value[assistantIndex].content += text
+          await scrollToBottom()
+        },
+        onDone: (res) => finalizeGuidedResponse(res, assistantIndex),
+        onError: (data) => {
+          ensureAssistantMessage()
+          messages.value[assistantIndex].content = `**智能体回复失败**\n\n${data.message || '未知错误'}`
+        },
+      },
+    )
+  } catch (error: any) {
+    messages.value.push({ role: 'assistant', content: `**智能体回复失败**\n\n${errorMessage(error)}` })
+  } finally {
+    guidedLoading.value = false
+  }
+  await scrollToBottom()
+}
+
+function applyGuidedResponse(res: GuidedResponse) {
+  applyGuidedMetadata(res)
+  messages.value.push({ role: 'assistant', content: res.message })
+}
+
+function applyGuidedMetadata(res: Partial<GuidedResponse>) {
+  if (res.sessionId) guidedSessionId.value = res.sessionId
+  guidedIntent.value = res.intent || guidedIntent.value
+  guidedStatus.value = res.status || guidedStatus.value
+  guidedSteps.value = res.steps || guidedSteps.value
+  guidedCurrentStep.value = Math.max(0, res.currentStep ?? guidedCurrentStep.value)
+  guidedTotalSteps.value = res.totalSteps || guidedSteps.value.length
+  guidedCitations.value = res.citations || guidedCitations.value
+}
+
+function finalizeGuidedResponse(res: GuidedResponse, assistantIndex: number) {
+  guidedSessionId.value = res.sessionId
+  applyGuidedMetadata(res)
+  if (assistantIndex >= 0) {
+    messages.value[assistantIndex].content = res.message || messages.value[assistantIndex].content
+  } else {
+    messages.value.push({ role: 'assistant', content: res.message })
+  }
+}
+
 async function submitCheck() {
   if (!task.value || !codeInput.value.trim()) return
+
   checkLoading.value = true
   try {
+    if (activeQuestion.value) {
+      checkResult.value = checkPublishedQuestion(activeQuestion.value, codeInput.value)
+      return
+    }
+
     checkResult.value = await api.aiCheck({
       courseLineId: task.value.course_line_id,
       moduleId: task.value.module_id,
       taskId: task.value.id,
-      studentId: session.currentUser?.id || '',
+      studentId: studentId.value,
+      artifactType: task.value.required_artifact_type,
       studentInput: codeInput.value,
+      chatHistory: messages.value,
     })
+  } catch (error: any) {
+    messages.value.push({ role: 'assistant', content: `**验收失败**\n\n${errorMessage(error)}` })
+    await scrollToBottom()
   } finally {
     checkLoading.value = false
   }
 }
 
-// ---------- Published Question ----------
-async function loadActiveQuestion(taskId: string, questionId: string) {
-  try {
-    const res = await api.publishedQuestions(taskId)
-    activeQuestion.value = res.questions.find(q => q.id === questionId) || null
-    // Pre-fill code input with question context if available
-    if (activeQuestion.value) {
-      const q = activeQuestion.value
-      const typeLabel = qTypeLabel(q.type)
-      const optionsText = q.options?.map(o => `${o.key}. ${o.text}`).join('\n') || ''
-      const hint = `【${typeLabel}】${q.stem}${optionsText ? '\n' + optionsText : ''}\n\n请作答：`
-      // Add as first assistant message to guide the student
-      messages.value.push({ role: 'assistant', content: `你正在回答一道发布题目：\n\n**${q.stem}**${optionsText ? '\n\n' + optionsText : ''}\n\n请在右侧代码编辑区写出你的答案，然后点击"提交验收"进行检查。` })
+function checkPublishedQuestion(question: Question, rawInput: string): AICheckResult {
+  const studentAnswer = normalizeAnswer(extractAnswer(rawInput), question.type)
+  const correctAnswer = normalizeAnswer(question.answer, question.type)
+  const isObjective = ['single_choice', 'multi_choice', 'true_false'].includes(question.type)
+  const subjective = isObjective ? null : evaluateSubjectiveQuestion(question, rawInput)
+  const passed = isObjective ? studentAnswer === correctAnswer : Boolean(subjective?.passed)
+  const studentText = question.options?.find((item) => normalizeAnswer(item.key, question.type) === studentAnswer)?.text
+  const correctText = question.options?.find((item) => normalizeAnswer(item.key, question.type) === correctAnswer)?.text
+  const reply = passed
+    ? [
+        `这道${qTypeLabel(question.type)}回答正确。`,
+        `题干：${question.stem}`,
+        `你的答案：${isObjective ? studentAnswer : summarizeSubmission(rawInput)}${studentText ? `（${studentText}）` : ''}`,
+        question.explanation ? `解析：${question.explanation}` : '',
+      ].filter(Boolean).join('\n')
+    : [
+        `这道${qTypeLabel(question.type)}还需要修改。`,
+        `题干：${question.stem}`,
+        `你的答案：${isObjective ? (studentAnswer || '未填写') : summarizeSubmission(rawInput)}${studentText ? `（${studentText}）` : ''}`,
+        isObjective ? `正确答案：${correctAnswer}${correctText ? `（${correctText}）` : ''}` : '',
+        subjective?.missing.length ? `缺少：${subjective.missing.join('、')}` : '',
+        question.explanation ? `解析：${question.explanation}` : '',
+      ].filter(Boolean).join('\n')
+
+  return {
+    passed,
+    score: isObjective ? (passed ? 100 : 0) : subjective?.score || 0,
+    level: passed ? 'passed' : 'needs_revision',
+    reply,
+    strengths: isObjective
+      ? (passed ? [`已选出正确答案：${correctAnswer}`] : [])
+      : (subjective?.strengths || []),
+    problems: passed
+      ? []
+      : [
+          {
+            type: isObjective ? '题目答案不匹配' : '提交内容不完整',
+            message: isObjective ? '本次提交按当前发布题目判分，不再按任务实践 rubric 扣分。' : '当前答案没有满足题干里的关键要求，不能按正确处理。',
+            suggestion: isObjective && question.options?.length
+              ? `请从 ${question.options.map((item) => item.key).join(' / ')} 中选择正确选项。`
+              : subjective?.suggestion || '请根据题干补全必要字段、结构或说明。',
+          },
+        ],
+    nextActions: passed
+      ? ['可以继续下一道题，或点击提示让智能体解释本题涉及的知识点。']
+      : ['回到左侧题干和智能体解析，确认关键知识点后重新填写答案。'],
+    evidence: [],
+    rubricScores: [],
+    nextTaskUnlocked: false,
+  }
+}
+
+interface SubjectiveCheck {
+  passed: boolean
+  score: number
+  strengths: string[]
+  missing: string[]
+  suggestion: string
+}
+
+function evaluateSubjectiveQuestion(question: Question, rawInput: string): SubjectiveCheck {
+  const answer = extractAnswer(rawInput)
+  const lower = answer.toLowerCase()
+  const stem = question.stem.toLowerCase()
+
+  if (!answer.trim()) {
+    return {
+      passed: false,
+      score: 0,
+      strengths: [],
+      missing: ['未填写答案'],
+      suggestion: '请先在右侧写出答案，再提交验收。',
     }
-  } catch { /* ignore */ }
+  }
+
+  if (stem.includes('建表 sql') || stem.includes('create table') || stem.includes('nb_expert')) {
+    return evaluateCreateTableSql(answer)
+  }
+
+  const codeCheck = evaluateCodeSyntax(question, answer)
+  const expectedTokens = extractExpectedTokens(`${question.answer}\n${question.explanation || ''}`)
+  const hitTokens = expectedTokens.filter((token) => lower.includes(token.toLowerCase()))
+  let score = expectedTokens.length
+    ? Math.round((hitTokens.length / expectedTokens.length) * 100)
+    : Math.min(80, Math.max(20, Math.round(answer.length / 2)))
+  if (codeCheck.errors.length) {
+    score = Math.min(score, 45)
+  }
+  return {
+    passed: codeCheck.errors.length === 0 && score >= 80 && answer.trim().length >= 20,
+    score,
+    strengths: [
+      ...(codeCheck.language ? [`${codeCheck.language} 结构检查通过`] : []),
+      ...(hitTokens.length ? [`命中关键要点：${hitTokens.slice(0, 4).join('、')}`] : []),
+    ],
+    missing: [
+      ...codeCheck.errors,
+      ...expectedTokens.filter((token) => !hitTokens.includes(token)).slice(0, 5),
+    ],
+    suggestion: codeCheck.errors.length
+      ? '请先把代码块补成语法结构完整的代码，再提交验收。'
+      : '请补充题目解析中要求的关键概念或实现要点，不要只填一个选项字母。',
+  }
+}
+
+interface CodeSyntaxCheck {
+  language: string
+  errors: string[]
+}
+
+function evaluateCodeSyntax(question: Question, answer: string): CodeSyntaxCheck {
+  const language = detectCodeLanguage(question, answer)
+  if (!language) return { language: '', errors: [] }
+
+  const code = stripCodeFence(answer).trim()
+  const errors: string[] = []
+  errors.push(...validateBalancedCode(code))
+
+  if (language === 'SQL') errors.push(...validateGenericSql(code))
+  if (language === 'Java') errors.push(...validateJavaLikeCode(code))
+  if (language === 'XML') errors.push(...validateXmlLikeCode(code))
+  if (language === 'Vue/HTML') errors.push(...validateHtmlLikeCode(code))
+
+  return { language, errors: Array.from(new Set(errors)) }
+}
+
+function detectCodeLanguage(question: Question, answer: string): string {
+  const text = `${question.stem}\n${question.answer}\n${answer}`.toLowerCase()
+  if (/\b(sql|select|insert|update|delete|create\s+table|mapper\.xml)\b/.test(text)) return text.includes('mapper.xml') || text.includes('<mapper') ? 'XML' : 'SQL'
+  if (/<\?xml|<mapper|<\/mapper>|<select\s|<insert\s|<update\s|<delete\s/.test(text)) return 'XML'
+  if (/<template|<\/template>|<el-|v-model|@click/.test(text)) return 'Vue/HTML'
+  if (/@(get|post|put|delete)mapping|public\s+|class\s+|interface\s+|return\s+|new\s+|import\s+java|@autowired/.test(text)) return 'Java'
+  if (question.type === 'code_fill') return '代码'
+  return ''
+}
+
+function stripCodeFence(value: string): string {
+  return value
+    .replace(/^```[a-zA-Z0-9_-]*\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim()
+}
+
+function validateBalancedCode(code: string): string[] {
+  const errors: string[] = []
+  const pairs: Record<string, string> = { ')': '(', ']': '[', '}': '{' }
+  const stack: string[] = []
+  let quote = ''
+  let escaped = false
+
+  for (const char of code) {
+    if (quote) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === quote) {
+        quote = ''
+      }
+      continue
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char
+      continue
+    }
+    if (char === '(' || char === '[' || char === '{') stack.push(char)
+    if (char === ')' || char === ']' || char === '}') {
+      if (stack.pop() !== pairs[char]) errors.push(`括号不匹配：${char}`)
+    }
+  }
+  if (quote) errors.push('字符串引号没有闭合')
+  if (stack.length) errors.push(`括号没有闭合：${stack.join(' ')}`)
+  return errors
+}
+
+function validateGenericSql(code: string): string[] {
+  const lower = code.toLowerCase()
+  const errors: string[] = []
+  if (!/;\s*$/.test(code)) errors.push('SQL 语句末尾需要分号 ;')
+  if (/,\s*(from|where|set|values|\)|;)/i.test(code)) errors.push('SQL 中存在多余逗号或缺少字段')
+  if (/\bselect\b/.test(lower) && !/\bfrom\b/.test(lower)) errors.push('SELECT 语句缺少 FROM')
+  if (/\binsert\b/.test(lower) && !/\binto\b/.test(lower)) errors.push('INSERT 语句缺少 INTO')
+  if (/\bupdate\b/.test(lower) && !/\bset\b/.test(lower)) errors.push('UPDATE 语句缺少 SET')
+  if (/\bdelete\b/.test(lower) && !/\bfrom\b/.test(lower)) errors.push('DELETE 语句缺少 FROM')
+  return errors
+}
+
+function validateJavaLikeCode(code: string): string[] {
+  const errors: string[] = []
+  const trimmed = code.trim()
+  if (/@(Get|Post|Put|Delete)Mapping/.test(trimmed) && !/\{[\s\S]*\}/.test(trimmed)) {
+    errors.push('Controller 方法缺少方法体大括号')
+  }
+  if (/\breturn\b/.test(trimmed) && !/;\s*(\/\/.*)?$/m.test(trimmed)) {
+    errors.push('return 语句通常需要以分号结尾')
+  }
+  if (/public\s+(class|interface|enum)\b/.test(trimmed) && !/\{[\s\S]*\}/.test(trimmed)) {
+    errors.push('Java 类/接口缺少完整的大括号结构')
+  }
+  if (/=\s*;/.test(trimmed)) errors.push('Java 赋值语句缺少右侧表达式')
+  return errors
+}
+
+function validateXmlLikeCode(code: string): string[] {
+  const errors: string[] = []
+  if (typeof DOMParser !== 'undefined') {
+    const parsed = new DOMParser().parseFromString(code, 'application/xml')
+    if (parsed.querySelector('parsererror')) {
+      errors.push('XML 标签没有正确闭合或嵌套')
+    }
+  }
+  if (/<mapper\b/.test(code) && !/<\/mapper>/.test(code)) errors.push('Mapper XML 缺少 </mapper>')
+  return errors
+}
+
+function validateHtmlLikeCode(code: string): string[] {
+  const errors: string[] = []
+  const tags = Array.from(code.matchAll(/<\/?([a-zA-Z][\w-]*)(?:\s[^>]*)?>/g))
+  const stack: string[] = []
+  const voidTags = new Set(['input', 'img', 'br', 'hr', 'meta', 'link'])
+  for (const match of tags) {
+    const full = match[0]
+    const tag = match[1]
+    if (voidTags.has(tag) || full.endsWith('/>')) continue
+    if (full.startsWith('</')) {
+      if (stack.pop() !== tag) errors.push(`HTML/Vue 标签闭合不匹配：${tag}`)
+    } else {
+      stack.push(tag)
+    }
+  }
+  if (stack.length) errors.push(`HTML/Vue 标签未闭合：${stack.slice(-3).join('、')}`)
+  return errors
+}
+
+function evaluateCreateTableSql(answer: string): SubjectiveCheck {
+  const lower = answer.toLowerCase()
+  const strengths: string[] = []
+  const missing: string[] = []
+  let score = 0
+
+  const fieldCount = countSqlFields(answer)
+  const indexCount = countSqlIndexes(answer)
+  const hasCreateTable = /create\s+table\s+`?nb_expert`?/i.test(answer)
+  const hasTableName = /\bnb_expert\b/i.test(answer)
+  const syntaxErrors = validateCreateTableSyntax(answer)
+
+  if (hasCreateTable) {
+    score += 15
+    strengths.push('包含 CREATE TABLE nb_expert')
+  } else if (/create\s+table/.test(lower)) {
+    score += 8
+    missing.push('CREATE TABLE nb_expert 语句')
+  } else {
+    missing.push('CREATE TABLE nb_expert 语句')
+  }
+
+  if (hasTableName) {
+    score += 10
+    strengths.push('表名为 nb_expert')
+  } else {
+    missing.push('表名 nb_expert')
+  }
+
+  if (fieldCount >= 8) {
+    score += 25
+    strengths.push(`包含 ${fieldCount} 个字段`)
+  } else {
+    score += Math.min(20, fieldCount * 2)
+    missing.push(`至少 8 个字段（当前识别到 ${fieldCount} 个）`)
+  }
+
+  if (indexCount >= 2) {
+    score += 20
+    strengths.push(`包含 ${indexCount} 个索引`)
+  } else {
+    score += indexCount * 8
+    missing.push(`至少 2 个索引（当前识别到 ${indexCount} 个）`)
+  }
+
+  const requiredChecks = [
+    { label: 'VARCHAR(50) 主键', ok: /varchar\s*\(\s*50\s*\)/.test(lower) && /primary\s+key/.test(lower) },
+    { label: 'LONGTEXT 字段', ok: lower.includes('longtext') },
+    { label: '状态字段', ok: /\bstatus\b/.test(lower) },
+    { label: '公共时间字段', ok: /create_?time|update_?time/.test(lower) },
+  ]
+  for (const item of requiredChecks) {
+    if (item.ok) {
+      score += 7
+      strengths.push(item.label)
+    } else {
+      missing.push(item.label)
+    }
+  }
+
+  score = Math.min(100, score)
+  if (syntaxErrors.length) {
+    missing.unshift(...syntaxErrors)
+    score = Math.min(score, 45)
+  }
+  return {
+    passed: syntaxErrors.length === 0 && hasCreateTable && hasTableName && score >= 80 && fieldCount >= 8 && indexCount >= 2,
+    score,
+    strengths,
+    missing,
+    suggestion: '请补完整 CREATE TABLE nb_expert，至少 8 个字段、2 个索引，并包含主键、简介 LONGTEXT、状态和创建/更新时间等公共字段。',
+  }
+}
+
+function validateCreateTableSyntax(answer: string): string[] {
+  const sql = stripSqlCodeFence(answer).trim()
+  const errors: string[] = []
+
+  if (!/^create\s+table\s+`?nb_expert`?\s*\(/i.test(sql)) {
+    errors.push('SQL 必须以 CREATE TABLE nb_expert ( 开头')
+  }
+  if (!/;\s*$/.test(sql)) {
+    errors.push('建表语句末尾需要分号 ;')
+  }
+  if (!hasBalancedParentheses(sql)) {
+    errors.push('括号不匹配，请检查字段列表的 ( 和 )')
+  }
+
+  const openIndex = sql.search(/\(/)
+  const closeIndex = findMatchingCreateTableClose(sql, openIndex)
+  if (openIndex < 0 || closeIndex < 0) {
+    errors.push('没有找到完整的字段定义括号体')
+    return Array.from(new Set(errors))
+  }
+
+  const before = sql.slice(0, openIndex)
+  const after = sql.slice(closeIndex + 1).trim()
+  if (!/create\s+table\s+`?nb_expert`?\s*$/i.test(before)) {
+    errors.push('CREATE TABLE 与表名位置不正确')
+  }
+  if (after && !/^engine\s*=|^default\s+charset|^comment\s*=|^charset\s*=|^collate\s*=|^;/i.test(after)) {
+    errors.push('字段定义括号结束后只能跟 ENGINE/CHARSET/COMMENT 等表选项')
+  }
+
+  const definitions = splitSqlDefinitions(sql.slice(openIndex + 1, closeIndex))
+  if (!definitions.length) {
+    errors.push('字段定义不能为空')
+  }
+  const invalidDefinitions = definitions.filter((item) => !isValidCreateTableDefinition(item))
+  if (invalidDefinitions.length) {
+    errors.push(`存在不完整或非法的字段/索引定义：${invalidDefinitions.slice(0, 3).join('；')}`)
+  }
+
+  const rawBody = sql.slice(openIndex + 1, closeIndex).trim()
+  if (/,\s*$/.test(rawBody)) {
+    errors.push('最后一个字段或索引定义后面不要保留多余逗号')
+  }
+
+  return Array.from(new Set(errors))
+}
+
+function stripSqlCodeFence(value: string): string {
+  return value
+    .replace(/^```(?:sql)?\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim()
+}
+
+function hasBalancedParentheses(value: string): boolean {
+  let depth = 0
+  for (const char of value) {
+    if (char === '(') depth += 1
+    if (char === ')') depth -= 1
+    if (depth < 0) return false
+  }
+  return depth === 0
+}
+
+function findMatchingCreateTableClose(sql: string, openIndex: number): number {
+  if (openIndex < 0) return -1
+  let depth = 0
+  for (let index = openIndex; index < sql.length; index += 1) {
+    const char = sql[index]
+    if (char === '(') depth += 1
+    if (char === ')') {
+      depth -= 1
+      if (depth === 0) return index
+    }
+  }
+  return -1
+}
+
+function splitSqlDefinitions(body: string): string[] {
+  const parts: string[] = []
+  let current = ''
+  let depth = 0
+  for (const char of body) {
+    if (char === '(') depth += 1
+    if (char === ')') depth -= 1
+    if (char === ',' && depth === 0) {
+      if (current.trim()) parts.push(current.trim())
+      current = ''
+      continue
+    }
+    current += char
+  }
+  if (current.trim()) parts.push(current.trim())
+  return parts
+}
+
+function isValidCreateTableDefinition(definition: string): boolean {
+  const normalized = definition.trim().replace(/`/g, '').toLowerCase()
+  if (!normalized) return false
+  if (/^(primary\s+key|index|key|unique\s+key|unique\s+index|constraint|foreign\s+key)\b/.test(normalized)) {
+    return /\(.+\)/.test(normalized)
+  }
+  if (/^(engine|charset|default|comment)\b/.test(normalized)) return false
+  return /^[a-z_][a-z0-9_]*\s+(varchar|char|longtext|text|int|bigint|tinyint|decimal|datetime|timestamp|date|blob)\b/.test(normalized)
+}
+
+function countSqlFields(answer: string): number {
+  const body = answer.match(/\(([\s\S]*)\)/)?.[1] || answer
+  return body
+    .split(/\n|,/)
+    .map((line) => line.trim().replace(/`/g, '').toLowerCase())
+    .filter((line) => line && !/^(primary|key|index|unique|constraint|foreign|comment|engine)\b/.test(line))
+    .filter((line) => /^[a-z_][a-z0-9_]*\s+[a-z]/.test(line)).length
+}
+
+function countSqlIndexes(answer: string): number {
+  const lower = answer.toLowerCase()
+  const inline = (lower.match(/\b(key|index|unique\s+key|unique\s+index)\s+[`a-z_]/g) || []).length
+  const create = (lower.match(/create\s+(unique\s+)?index\s+/g) || []).length
+  const primary = /primary\s+key/.test(lower) ? 1 : 0
+  return inline + create + primary
+}
+
+function extractExpectedTokens(text: string): string[] {
+  const tokens = text.match(/[A-Za-z_][A-Za-z0-9_]{2,}|[\u4e00-\u9fff]{2,}/g) || []
+  return Array.from(new Set(tokens)).filter((token) => !['需要', '学生', '理解', '掌握', '题目', '解析'].includes(token)).slice(0, 8)
+}
+
+function summarizeSubmission(rawInput: string): string {
+  const answer = extractAnswer(rawInput).trim()
+  if (!answer) return '未填写'
+  return answer.length > 80 ? `${answer.slice(0, 80)}...` : answer
+}
+
+function extractAnswer(rawInput: string): string {
+  const markerMatch = rawInput.match(/(?:我的答案|答案|answer)\s*[:：]\s*([\s\S]*)/i)
+  return (markerMatch?.[1] || rawInput).trim()
+}
+
+function normalizeAnswer(value: string, type: string): string {
+  const cleaned = value
+    .replace(/[`"'，。；;、\s]/g, '')
+    .replace(/[（）()]/g, '')
+    .trim()
+    .toUpperCase()
+
+  if (type === 'multi_choice') {
+    return Array.from(new Set(cleaned.split('').filter(Boolean))).sort().join('')
+  }
+  return cleaned.slice(0, 1)
+}
+
+async function loadActiveQuestion(taskId: string, questionId: string) {
+  const res = await api.publishedQuestions(taskId)
+  activeQuestion.value = res.questions.find((item) => item.id === questionId) || null
+  if (!activeQuestion.value) return
+
+  if (!codeInput.value.trim()) {
+    codeInput.value = activeQuestion.value.type === 'code_fill'
+      ? '// 在这里补全代码\n'
+      : '我的答案：'
+  }
 }
 
 function clearActiveQuestion() {
   activeQuestion.value = null
-  // Remove questionId from URL without reload
-  router.replace({ query: { ...route.query, questionId: undefined } })
+  guidedSessionId.value = ''
+  guidedIntent.value = ''
+  guidedStatus.value = ''
+  guidedSteps.value = []
+  guidedCurrentStep.value = 0
+  guidedTotalSteps.value = 0
+  guidedCitations.value = []
+
+  const nextQuery = { ...route.query }
+  delete nextQuery.questionId
+  router.replace({ query: nextQuery })
 }
 
 function qTypeLabel(type: string): string {
-  const m: Record<string, string> = { single_choice: '单选题', multi_choice: '多选题', true_false: '判断题', short_answer: '简答题', code_fill: '代码填空' }
-  return m[type] || type
+  const labels: Record<string, string> = {
+    single_choice: '单选题',
+    multi_choice: '多选题',
+    true_false: '判断题',
+    short_answer: '简答题',
+    code_fill: '代码填空',
+  }
+  return labels[type] || type
+}
+
+function taskTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    analysis: '资料分析',
+    coding: '代码练习',
+    lesson_practice: '章节练习',
+    project_practice: '项目实训',
+    quiz: '题目练习',
+  }
+  return labels[type] || type.replace(/_/g, ' ')
+}
+
+function artifactTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    text: '文字答案',
+    code: '代码',
+    code_or_text: '代码或文字',
+    java_snippet: 'Java 代码片段',
+    sql: 'SQL 脚本',
+    markdown: '说明文档',
+  }
+  return labels[type] || type.replace(/_/g, ' ')
+}
+
+function citationKindLabel(kind: string): string {
+  const labels: Record<string, string> = {
+    'task-upload': '任务资料',
+    'course-material': '课程资料',
+    'course-standard': '课程标准',
+    'project-document': '项目文档',
+    'database-schema': '库表结构',
+    'requirement-spec': '需求规格',
+    upload: '上传资料',
+    web: '网页',
+    'web-search': '外部网页',
+  }
+  return labels[kind] || kind
+}
+
+function isUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value)
+}
+
+function shortSource(source: string): string {
+  if (!source) return '未知来源'
+  if (isUrl(source)) {
+    try {
+      return new URL(source).hostname
+    } catch {
+      return source
+    }
+  }
+  return source.length > 34 ? `${source.slice(0, 31)}...` : source
+}
+
+function errorMessage(error: any): string {
+  return error?.response?.data?.detail || error?.message || '未知错误'
 }
 </script>
 
 <style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
-.workspace-scene {
+.workspace-page {
+  min-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  position: relative;
+  gap: 16px;
+  color: #172033;
 }
 
-.grain-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  pointer-events: none;
-  opacity: 0.025;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
-  background-repeat: repeat;
-  background-size: 256px 256px;
+.loading-state,
+.empty-state {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  padding: 32px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #526071;
+  text-align: center;
 }
 
-/* ─── 加载状态 ─── */
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 80px 24px;
-  color: #A8A29E;
-  font-size: 14px;
+.empty-state {
+  align-content: center;
 }
 
-.loading-spinner {
-  width: 28px;
-  height: 28px;
-  border: 2px solid rgba(0, 0, 0, 0.06);
-  border-top-color: #D97706;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+.empty-state strong {
+  color: #172033;
 }
 
-/* ─── 头部 ─── */
+.empty-state p {
+  margin: 0;
+  max-width: 520px;
+  line-height: 1.6;
+}
+
+.spin-icon {
+  animation: spin 0.75s linear infinite;
+}
+
 .task-header {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 24px;
-  opacity: 0;
-  transform: translateY(12px);
-  animation: fadeUp 0.7s cubic-bezier(0.32, 0.72, 0, 1) 0.05s forwards;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
-.eyebrow-tag {
+.task-copy {
+  min-width: 0;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.task-meta span,
+.artifact-pill,
+.status-pill,
+.question-type,
+.session-status,
+.source-kind {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 14px 5px 10px;
-  border-radius: 100px;
-  background: rgba(0, 0, 0, 0.03);
-  font-size: 11px;
+  min-height: 24px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #78716C;
-  margin-bottom: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
-.eyebrow-tag.small {
-  padding: 3px 10px 3px 8px;
-  font-size: 10px;
-  margin-bottom: 8px;
+.task-meta span {
+  background: #eef6f2;
+  color: #1f6f50;
 }
 
-.tag-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #D97706;
-}
-
-.task-title {
+.task-header h1 {
   margin: 0 0 8px;
-  font-family: 'Playfair Display', serif;
-  font-size: clamp(24px, 3vw, 36px);
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.02em;
-  color: #0F172A;
+  font-size: 24px;
+  line-height: 1.25;
+  color: #111827;
 }
 
-.task-goal {
+.task-header p {
+  max-width: 760px;
   margin: 0;
+  color: #5f6b7a;
   font-size: 14px;
-  color: #78716C;
-  line-height: 1.6;
-  max-width: 560px;
+  line-height: 1.7;
 }
 
 .header-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
   flex-shrink: 0;
 }
 
-.action-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  border: none;
-  border-radius: 100px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.32, 0.72, 0, 1);
-  font-family: inherit;
-}
-
-.action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.action-btn.secondary {
-  background: rgba(0, 0, 0, 0.03);
-  color: #78716C;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-}
-
-.action-btn.secondary:not(:disabled):hover {
-  border-color: rgba(217, 119, 6, 0.2);
-  color: #D97706;
-}
-
-.action-btn.primary {
-  background: rgba(217, 119, 6, 0.08);
-  color: #D97706;
-}
-
-.action-btn.primary:not(:disabled):hover {
-  background: rgba(217, 119, 6, 0.14);
-}
-
-.action-btn.dark {
-  background: #0F172A;
-  color: #FFFBEB;
-}
-
-.action-btn.dark:not(:disabled):hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.2);
-}
-
-.btn-icon-inner {
-  display: flex;
+.icon-action,
+.send-button,
+.close-button {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  font-size: 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-family: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
-.btn-spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+.icon-action {
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 13px;
+  font-size: 13px;
 }
 
-.artifact-badge {
-  padding: 4px 10px;
-  border-radius: 100px;
-  background: rgba(0, 0, 0, 0.03);
-  color: #A8A29E;
-  font-size: 11px;
-  font-weight: 500;
+.icon-action.secondary {
+  background: #ffffff;
+  border-color: #d7dde6;
+  color: #334155;
 }
 
-/* ─── 双栏布局 ─── */
+.icon-action.primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+}
+
+.icon-action:not(:disabled):hover,
+.send-button:not(:disabled):hover,
+.close-button:not(:disabled):hover {
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
+}
+
+.icon-action.secondary:not(:disabled):hover {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.icon-action:disabled,
+.send-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
+}
+
 .workspace-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  min-height: 420px;
-  opacity: 0;
-  transform: translateY(10px);
-  animation: fadeUp 0.6s cubic-bezier(0.32, 0.72, 0, 1) 0.2s forwards;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 16px;
+  align-items: stretch;
 }
 
-/* ─── 对话面板 ─── */
-.chat-panel {
-  display: flex;
-  flex-direction: column;
-  border-radius: 18px;
-  background: rgba(0, 0, 0, 0.01);
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-}
-
-/* ─── 题目状态栏 ─── */
-.question-status-bar {
-  padding: 14px 18px;
-  background: linear-gradient(135deg, rgba(217, 119, 6, 0.06), rgba(245, 158, 11, 0.04));
-  border-bottom: 1px solid rgba(217, 119, 6, 0.12);
-}
-
-.qsb-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.qsb-badge {
-  padding: 2px 10px;
-  border-radius: 100px;
-  background: #D97706;
-  color: #FFFBEB;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
-.qsb-type {
-  font-size: 11px;
-  color: #D97706;
-  font-weight: 600;
-}
-
-.qsb-close {
-  margin-left: auto;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #A8A29E;
-  font-size: 14px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.qsb-close:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: #0F172A;
-}
-
-.qsb-stem {
-  margin: 0 0 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #0F172A;
-  line-height: 1.5;
-}
-
-.qsb-options {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.qsb-opt {
-  font-size: 12px;
-  color: #78716C;
-  line-height: 1.4;
-  padding-left: 8px;
-}
-
-.panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 20px 12px;
-}
-
-.chat-messages {
-  flex: 1;
-  padding: 0 20px 16px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-height: 420px;
-}
-
-.message {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-}
-
-.message.student {
-  flex-direction: row-reverse;
-}
-
-.message-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  background: rgba(217, 119, 6, 0.1);
-  color: #D97706;
-  font-size: 10px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.message-bubble {
-  max-width: 85%;
-  padding: 12px 16px;
-  border-radius: 14px;
-  font-size: 14px;
-  line-height: 1.65;
-}
-
-.message.student .message-bubble {
-  background: #0F172A;
-  color: #FFFBEB;
-  border-bottom-right-radius: 4px;
-}
-
-.message.assistant .message-bubble {
-  background: rgba(0, 0, 0, 0.025);
-  color: #0F172A;
-  border-bottom-left-radius: 4px;
-}
-
-.message-content :deep(pre) {
-  background: rgba(0, 0, 0, 0.04);
-  padding: 12px 14px;
-  border-radius: 8px;
-  overflow-x: auto;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
-  margin: 10px 0;
-  line-height: 1.5;
-}
-
-.message.student .message-content :deep(pre) {
-  background: rgba(255, 251, 235, 0.1);
-}
-
-.message-content :deep(code) {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.message.student .message-content :deep(code) {
-  background: rgba(255, 251, 235, 0.12);
-}
-
-.message-content :deep(strong) {
-  font-weight: 700;
-}
-
-.typing-dots {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 6px;
-}
-
-.typing-dots span {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #D97706;
-  animation: bounce 1.2s infinite;
-}
-
-.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-
-.chat-input {
-  display: flex;
-  gap: 10px;
-  padding: 14px 20px;
-  border-top: 1px solid rgba(0, 0, 0, 0.04);
-}
-
-.chat-input textarea {
-  flex: 1;
-  border: 1.5px solid rgba(0, 0, 0, 0.06);
-  border-radius: 12px;
-  padding: 10px 14px;
-  font-size: 13px;
-  font-family: inherit;
-  resize: none;
-  outline: none;
-  background: transparent;
-  color: #0F172A;
-  transition: border-color 0.3s;
-}
-
-.chat-input textarea:focus {
-  border-color: #D97706;
-}
-
-.send-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border: none;
-  border-radius: 12px;
-  background: #0F172A;
-  color: #FFFBEB;
-  cursor: pointer;
-  align-self: flex-end;
-  transition: all 0.3s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.send-btn:not(:disabled):hover {
-  transform: translateY(-1px);
-}
-
-.send-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-/* ─── 代码面板 ─── */
-.code-panel {
-  display: flex;
-  flex-direction: column;
-  border-radius: 18px;
-  background: rgba(0, 0, 0, 0.01);
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-}
-
-.code-editor-wrap {
-  flex: 1;
-  display: flex;
-  min-height: 380px;
-}
-
-.editor-gutter {
-  display: flex;
-  flex-direction: column;
-  padding: 14px 0 14px 14px;
-  color: #D4D4D4;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  line-height: 1.65;
-  user-select: none;
-  text-align: right;
-  min-width: 36px;
-}
-
-.editor-gutter span {
-  padding-right: 10px;
-}
-
-.code-editor {
-  flex: 1;
-  border: none;
-  padding: 14px 16px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
-  line-height: 1.65;
-  resize: none;
-  outline: none;
-  background: transparent;
-  color: #0F172A;
-}
-
-/* ─── 评分面板 ─── */
+.dialogue-panel,
+.answer-panel,
 .result-section {
-  border-radius: 18px;
-  background: rgba(0, 0, 0, 0.01);
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  overflow: hidden;
-  opacity: 0;
-  transform: translateY(10px);
-  animation: fadeUp 0.6s cubic-bezier(0.32, 0.72, 0, 1) 0.05s forwards;
+  min-width: 0;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
+.dialogue-panel,
+.answer-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 650px;
+  overflow: hidden;
+}
+
+.question-strip {
+  padding: 14px 16px;
+  border-bottom: 1px solid #dfe8f5;
+  background: #f5f9ff;
+}
+
+.question-strip-head,
+.panel-heading,
+.stepper-top,
+.editor-footer,
 .result-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 24px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  gap: 12px;
 }
 
-.result-header h3 {
-  margin: 0;
-  font-family: 'Playfair Display', serif;
+.status-pill {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.question-type {
+  background: #edfdf4;
+  color: #15803d;
+}
+
+.close-button {
+  width: 30px;
+  height: 30px;
+  margin-left: auto;
+  background: #ffffff;
+  border-color: #d7dde6;
+  color: #64748b;
+}
+
+.question-stem {
+  margin: 10px 0 0;
+  color: #1f2937;
+  font-weight: 650;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.option-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.panel-heading {
+  padding: 14px 16px;
+  border-bottom: 1px solid #edf0f4;
+}
+
+.panel-heading h2 {
+  margin: 3px 0 0;
+  color: #111827;
   font-size: 18px;
-  font-weight: 600;
-  color: #0F172A;
+  line-height: 1.3;
 }
 
-.result-badge {
-  padding: 5px 14px;
-  border-radius: 100px;
+.panel-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #526071;
   font-size: 12px;
   font-weight: 700;
 }
 
-.result-badge.passed {
-  background: rgba(125, 211, 168, 0.15);
-  color: #059669;
+.session-status {
+  background: #f0fdf4;
+  color: #15803d;
 }
 
-.result-badge.needs_revision {
-  background: rgba(217, 119, 6, 0.1);
-  color: #D97706;
+.guided-stepper {
+  margin: 12px 16px 0;
+  padding: 12px;
+  border: 1px solid #d9e5f6;
+  border-radius: 8px;
+  background: #f8fbff;
 }
 
-.result-body {
-  padding: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+.stepper-top strong {
+  min-width: 0;
+  color: #1f2937;
+  font-size: 14px;
+  overflow-wrap: anywhere;
 }
 
-.result-score-row {
-  display: flex;
-  align-items: center;
-  gap: 24px;
+.stepper-top span {
+  flex-shrink: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
 }
 
-.score-circle {
-  display: flex;
-  flex-direction: column;
+.stepper-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(30px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.step-dot {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 80px;
-  height: 80px;
-  border-radius: 20px;
-  background: rgba(217, 119, 6, 0.06);
-  flex-shrink: 0;
+  min-width: 30px;
+  height: 28px;
+  border-radius: 8px;
+  background: #e8edf5;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
 }
 
-.score-circle strong {
-  font-family: 'Playfair Display', serif;
-  font-size: 28px;
-  font-weight: 700;
-  color: #D97706;
-  line-height: 1;
+.step-dot.active {
+  background: #2563eb;
+  color: #ffffff;
 }
 
-.score-circle small {
+.step-dot.done {
+  background: #d1fae5;
+  color: #047857;
+}
+
+.guided-stepper p {
+  margin: 10px 0 0;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.citation-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 16px 0;
+}
+
+.citation-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid #e3e8ef;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 12px;
+}
+
+.citation-item a,
+.citation-item span:last-child {
+  color: #1d4ed8;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-kind {
+  min-height: 20px;
+  padding: 1px 6px;
+  background: #f1f5f9;
+  color: #475569;
   font-size: 11px;
-  color: #A8A29E;
 }
 
-.result-reply {
-  margin: 0;
+.chat-messages {
+  flex: 1;
+  min-height: 320px;
+  max-height: 58vh;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.empty-chat {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.message-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  margin-bottom: 14px;
+}
+
+.message-row.student {
+  grid-template-columns: minmax(0, 1fr) 34px;
+}
+
+.message-row.student .message-avatar {
+  grid-column: 2;
+  grid-row: 1;
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.message-row.student .message-bubble {
+  grid-column: 1;
+  justify-self: end;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.message-avatar {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #ecfdf5;
+  color: #047857;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.message-bubble {
+  width: fit-content;
+  max-width: 100%;
+  padding: 11px 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2937;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.message-bubble.pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #526071;
+}
+
+.message-content {
+  font-size: 14px;
+}
+
+.message-content :deep(h3),
+.message-content :deep(h4) {
+  margin: 8px 0 4px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #111827;
+}
+
+.message-content :deep(pre) {
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #111827;
+  color: #e5e7eb;
+  overflow-x: auto;
+}
+
+.message-content :deep(code) {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #eef2f7;
+  color: #0f172a;
+  font-family: Consolas, 'JetBrains Mono', monospace;
+  font-size: 0.92em;
+}
+
+.message-content :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.chat-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+  padding: 12px;
+  border-top: 1px solid #edf0f4;
+  background: #f8fafc;
+}
+
+.chat-input textarea {
+  width: 100%;
+  min-height: 44px;
+  max-height: 128px;
+  resize: vertical;
+  border: 1px solid #d7dde6;
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: #1f2937;
+  background: #ffffff;
+  font: inherit;
+  line-height: 1.5;
+}
+
+.chat-input textarea:focus,
+.code-editor:focus,
+.icon-action:focus-visible,
+.send-button:focus-visible,
+.close-button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.22);
+  outline-offset: 2px;
+}
+
+.send-button {
+  width: 42px;
+  height: 42px;
+  align-self: end;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.answer-panel {
+  padding-bottom: 12px;
+}
+
+.artifact-pill {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.answer-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  align-self: flex-start;
+  margin: 12px 16px 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.editor-shell {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  min-height: 520px;
+  margin: 12px 16px 0;
+  border: 1px solid #d7dde6;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0f172a;
+}
+
+.editor-gutter {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  padding: 12px 8px;
+  border-right: 1px solid rgba(148, 163, 184, 0.24);
+  color: #64748b;
+  font-family: Consolas, 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: right;
+  user-select: none;
+}
+
+.code-editor {
+  width: 100%;
+  min-height: 520px;
+  resize: none;
+  border: 0;
+  padding: 12px 14px;
+  background: #0f172a;
+  color: #dbeafe;
+  caret-color: #93c5fd;
+  font-family: Consolas, 'JetBrains Mono', monospace;
   font-size: 14px;
   line-height: 1.7;
-  color: #0F172A;
 }
 
-.result-details {
+.editor-footer {
+  padding: 10px 16px 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.result-section {
+  padding: 16px;
+}
+
+.result-header {
+  margin-bottom: 14px;
+}
+
+.result-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.result-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.result-badge.passed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.result-badge.needs_revision,
+.result-badge.blocked {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.score-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f8fafc;
 }
 
-.detail-section h4 {
-  margin: 0 0 10px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #78716C;
-  letter-spacing: 0.02em;
+.score-row p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.65;
 }
 
-.detail-section ul {
+.score-ring {
+  width: 76px;
+  height: 76px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.score-ring strong {
+  margin-bottom: -18px;
+  font-size: 24px;
+}
+
+.score-ring span {
+  font-size: 12px;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.result-block {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.result-block h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.result-block ul {
+  display: grid;
+  gap: 7px;
   margin: 0;
   padding-left: 18px;
-  font-size: 13px;
-  line-height: 1.8;
-  color: #0F172A;
+  color: #475569;
+  line-height: 1.55;
 }
 
-.detail-section em {
-  color: #D97706;
+.result-block li {
+  overflow-wrap: anywhere;
+}
+
+.result-block li strong {
+  margin-right: 6px;
+  color: #111827;
+}
+
+.result-block li em {
+  display: block;
+  margin-top: 3px;
+  color: #2563eb;
   font-style: normal;
 }
 
-/* ─── 动画 ─── */
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-@keyframes bounce {
-  0%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-6px); }
-}
-
-/* ─── 响应式 ─── */
-@media (max-width: 900px) {
-  .task-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .header-actions {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-
-  .workspace-grid {
+@media (max-width: 1080px) {
+  .workspace-grid,
+  .result-grid {
     grid-template-columns: 1fr;
   }
 
-  .result-score-row {
+  .dialogue-panel,
+  .answer-panel {
+    min-height: 560px;
+  }
+}
+
+@media (max-width: 680px) {
+  .task-header {
+    align-items: stretch;
     flex-direction: column;
+  }
+
+  .header-actions {
+    justify-content: stretch;
+  }
+
+  .icon-action {
+    flex: 1;
+  }
+
+  .question-strip-head,
+  .panel-heading,
+  .stepper-top,
+  .editor-footer,
+  .result-header,
+  .score-row {
     align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chat-messages {
+    max-height: none;
+  }
+
+  .message-row,
+  .message-row.student {
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .message-row.student .message-avatar,
+  .message-row.student .message-bubble {
+    grid-column: auto;
+  }
+
+  .message-avatar {
+    width: 30px;
+    height: 30px;
+  }
+
+  .editor-shell {
+    grid-template-columns: 34px minmax(0, 1fr);
+    min-height: 420px;
+  }
+
+  .code-editor {
+    min-height: 420px;
+    font-size: 13px;
   }
 }
 </style>

@@ -7,7 +7,7 @@
 
     <aside v-if="false" class="course-rail">
       <section class="work-panel course-card">
-        <p class="eyebrow">Course Track</p>
+        <p class="eyebrow">课程轨道</p>
         <h2>{{ store.course?.title || '真实课程实训' }}</h2>
         <p class="rail-subtitle">{{ store.course?.subtitle || '围绕真实资料完成逐步练习' }}</p>
 
@@ -28,7 +28,7 @@
       <section class="work-panel path-card">
         <div class="section-head compact">
           <div>
-            <p class="eyebrow">Learning Path</p>
+            <p class="eyebrow">关卡路线</p>
             <h3>关卡路线</h3>
           </div>
           <strong>{{ currentLessonIndex + 1 }}/{{ lessons.length || 1 }}</strong>
@@ -46,7 +46,7 @@
             <span class="lesson-index">{{ String(index + 1).padStart(2, '0') }}</span>
             <span class="lesson-copy">
               <strong>{{ lesson.title }}</strong>
-              <small>{{ lesson.source || lesson.tags.join(' / ') }}</small>
+              <small>{{ lesson.source || lesson.tags.map(displayTagLabel).join(' / ') }}</small>
             </span>
             <ChevronRight :size="16" />
           </button>
@@ -57,7 +57,7 @@
     <section class="guide-column">
       <section class="work-panel mission-hero">
         <div>
-          <p class="eyebrow">Current Mission</p>
+          <p class="eyebrow">当前任务</p>
           <h2>{{ store.task?.title || store.lesson?.title || '请选择章节' }}</h2>
           <p>{{ store.task?.goal || store.lesson?.summary || '读取真实课程资料后开始本节任务。' }}</p>
         </div>
@@ -87,7 +87,7 @@
       <section class="work-panel task-card">
         <div class="section-head">
           <div>
-            <p class="eyebrow">{{ store.task?.type || activeStep.label }}</p>
+            <p class="eyebrow">{{ store.task ? taskTypeLabel(store.task.type) : activeStep.label }}</p>
             <h3>{{ store.task?.title || activeStep.title }}</h3>
           </div>
           <span class="step-badge">{{ activeTaskStatusLabel }}</span>
@@ -95,7 +95,7 @@
 
         <div v-if="activeStepKey === 'read'" class="read-brief">
           <article class="brief-block primary">
-            <p class="eyebrow">Mission Brief</p>
+            <p class="eyebrow">任务说明</p>
             <h4>{{ store.task?.goal || store.lesson?.practice.title || store.lesson?.title }}</h4>
             <p>{{ store.task?.instruction || store.lesson?.practice.description || store.lesson?.summary }}</p>
           </article>
@@ -517,7 +517,7 @@ const activeTaskStatusLabel = computed(() => {
   if (status === 'completed') return `${activeRuntimeTask.value?.score ?? 100} 分`
   if (status === 'needs_revision') return '需要修改'
   if (status === 'locked') return '预览中'
-  return store.task?.required_artifact_type || activeStep.value.badge
+  return store.task ? artifactTypeLabel(store.task.required_artifact_type) : activeStep.value.badge
 })
 
 const sourceLabel = computed(() =>
@@ -539,7 +539,7 @@ const readObjectives = computed(() => {
 
 const readDeliverables = computed(() => {
   if (store.task) return [
-    `提交类型：${store.task.required_artifact_type}`,
+    `提交类型：${artifactTypeLabel(store.task.required_artifact_type)}`,
     `解锁分数：${store.task.unlock_policy?.minScore ?? 70}`,
     ...taskRubricLabels.value.slice(0, 2),
   ]
@@ -1128,6 +1128,49 @@ function courseLabel(courseId: string) {
   return courseId === 'nongbo-admin-project' ? '农宝项目课' : 'SpringBoot 12 讲'
 }
 
+function taskTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    analysis: '资料分析',
+    coding: '代码练习',
+    lesson_practice: '章节练习',
+    project_practice: '项目实训',
+    quiz: '题目练习',
+  }
+  return labels[type] || type.replace(/_/g, ' ')
+}
+
+function artifactTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    text: '文字答案',
+    code: '代码',
+    code_or_text: '代码或文字',
+    java_snippet: 'Java 代码片段',
+    sql: 'SQL 脚本',
+    markdown: '说明文档',
+  }
+  return labels[type] || type.replace(/_/g, ' ')
+}
+
+function displayTagLabel(tag: string) {
+  const labels: Record<string, string> = {
+    analysis: '资料分析',
+    coding: '代码练习',
+    text: '文字答案',
+    java_snippet: 'Java 片段',
+    lesson_practice: '章节练习',
+    code_or_text: '代码或文字',
+    'course-standard': '课程标准',
+    'project-document': '项目文档',
+    'course-material': '课程资料',
+    waiting: '等待中',
+    active: '进行中',
+    locked: '未解锁',
+    completed: '已完成',
+    needs_revision: '需修改',
+  }
+  return labels[tag] || tag.replace(/_/g, ' ')
+}
+
 function citationKindLabel(kind: string) {
   const labels: Record<string, string> = {
     concept: '知识点',
@@ -1136,8 +1179,12 @@ function citationKindLabel(kind: string) {
     'course-material': '课程资料',
     'project-document': '项目文档',
     'database-schema': '库表结构',
+    'course-standard': '课程标准',
     standard: '职业标准',
     'requirement-spec': '需求规格',
+    'task-upload': '任务资料',
+    upload: '上传资料',
+    'web-search': '外部网页',
   }
   return labels[kind] || '引用'
 }

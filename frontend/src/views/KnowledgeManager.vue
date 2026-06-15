@@ -24,11 +24,17 @@
           <small>{{ uploadFile?.name || '未选择文件' }}</small>
         </div>
         <div class="form-field">
-          <label>关联课程线（可选）</label>
-          <select v-model="uploadCourseLine">
-            <option value="">共享（所有课程可用）</option>
+          <label>关联课程线</label>
+          <select v-model="uploadCourseLine" @change="loadUploadTasks">
             <option value="springboot-course-12">SpringBoot 12 讲</option>
             <option value="nongbo-admin-project">农宝项目</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>关联任务（推荐）</label>
+          <select v-model="uploadTaskId">
+            <option value="">仅加入课程知识库</option>
+            <option v-for="task in uploadTaskList" :key="task.id" :value="task.id">{{ task.title }}</option>
           </select>
         </div>
         <div class="modal-actions">
@@ -176,14 +182,23 @@
         </div>
         <div class="form-field">
           <label>选择关卡</label>
-          <select v-model="publishTaskId">
+          <select v-model="publishTaskId" @change="loadPublishTaskFiles">
             <option value="" disabled>请选择关卡</option>
             <option v-for="t in publishTaskList" :key="t.id" :value="t.id">{{ t.title }}</option>
           </select>
         </div>
+        <div :class="['kb-link-status', { warning: !publishTaskFiles.length }]">
+          <FileText :size="15" />
+          <span v-if="publishTaskFiles.length">
+            已关联 {{ publishTaskFiles.length }} 份知识库资料，学生进入智能体模式后会优先引用这些资料。
+          </span>
+          <span v-else>
+            该任务还没有关联资料。请先在上方上传资料并选择同一任务，再发布给学生。
+          </span>
+        </div>
         <div class="modal-actions">
           <el-button @click="showPublishModal = false">取消</el-button>
-          <el-button type="primary" @click="doPublish" :loading="publishing" :disabled="!publishTaskId">
+          <el-button type="primary" @click="doPublish" :loading="publishing" :disabled="!publishTaskId || !publishTaskFiles.length">
             确认发布
           </el-button>
         </div>
@@ -227,7 +242,9 @@ import { api, type Question, type QuestionCreatePayload, type QuestionOption, ty
 const showUpload = ref(false)
 const uploading = ref(false)
 const uploadFile = ref<File | null>(null)
-const uploadCourseLine = ref('')
+const uploadCourseLine = ref('nongbo-admin-project')
+const uploadTaskId = ref('')
+const uploadTaskList = ref<LearningTaskSummary[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
 
 const files = ref<Array<{
@@ -241,7 +258,29 @@ const files = ref<Array<{
 
 onMounted(async () => {
   await loadFiles()
+  await loadUploadTasks()
 })
+
+async function loadUploadTasks() {
+  if (!uploadCourseLine.value) {
+    uploadTaskList.value = []
+    uploadTaskId.value = ''
+    return
+  }
+  try {
+    const map = await api.learningMap(uploadCourseLine.value)
+    uploadTaskList.value = map.tasks
+    for (const task of map.tasks) {
+      taskTitleMap.value[task.id] = task.title
+    }
+    if (!uploadTaskList.value.some((task) => task.id === uploadTaskId.value)) {
+      uploadTaskId.value = uploadTaskList.value[0]?.id || ''
+    }
+  } catch {
+    uploadTaskList.value = []
+    uploadTaskId.value = ''
+  }
+}
 
 async function loadFiles() {
   try {
@@ -271,17 +310,16 @@ async function doUpload() {
   if (!uploadFile.value) return
   uploading.value = true
   try {
-    const formData = new FormData()
-    formData.append('file', uploadFile.value)
-    // 使用 axios 直接上传
-    const axios = (await import('axios')).default
-    await axios.post('/api/kb/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    await api.uploadKnowledgeFile({
+      file: uploadFile.value,
+      courseLineId: uploadCourseLine.value,
+      taskId: uploadTaskId.value || undefined,
     })
-    ElMessage.success('文件已上传并索引')
+    ElMessage.success(uploadTaskId.value ? '文件已上传、索引并关联到任务' : '文件已上传并索引')
     showUpload.value = false
     uploadFile.value = null
     await loadFiles()
+    await loadPublishTaskFiles()
   } catch (e: any) {
     ElMessage.error(`上传失败: ${e.message}`)
   } finally {
@@ -469,6 +507,7 @@ const publishCourseLine = ref('springboot-course-12')
 const publishTaskId = ref('')
 const publishTaskList = ref<LearningTaskSummary[]>([])
 const publishing = ref(false)
+const publishTaskFiles = ref<Array<{ id: string; filename: string }>>([])
 
 // Map: question_id -> [{task_id, course_line_id}]
 const questionPublishedMap = ref<Record<string, Array<{ task_id: string; course_line_id: string }>>>({})
@@ -488,7 +527,19 @@ async function loadPublishTasks() {
       taskTitleMap.value[t.id] = t.title
     }
     publishTaskId.value = publishTaskList.value[0]?.id || ''
+    await loadPublishTaskFiles()
   } catch { /* ignore */ }
+}
+
+async function loadPublishTaskFiles() {
+  publishTaskFiles.value = []
+  if (!publishTaskId.value) return
+  try {
+    const res = await api.kbTaskFiles(publishTaskId.value)
+    publishTaskFiles.value = res.files
+  } catch {
+    publishTaskFiles.value = []
+  }
 }
 
 async function loadQuestionPublishedStatus() {
@@ -535,6 +586,10 @@ function openPublish(q: Question) {
 
 async function doPublish() {
   if (!publishingQuestion.value || !publishTaskId.value) return
+  if (!publishTaskFiles.value.length) {
+    ElMessage.warning('请先为该任务上传并关联知识库资料')
+    return
+  }
   publishing.value = true
   try {
     await api.publishQuestion(
@@ -716,6 +771,26 @@ async function handleUnpublish(questionId: string, taskId: string) {
   background: var(--bg-card);
   color: var(--text-primary);
   outline: none;
+}
+
+.kb-link-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 4px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid rgba(32, 165, 121, 0.18);
+  border-radius: 8px;
+  background: rgba(32, 165, 121, 0.06);
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.kb-link-status.warning {
+  border-color: rgba(217, 119, 6, 0.22);
+  background: rgba(217, 119, 6, 0.07);
+  color: #92400e;
 }
 
 .modal-actions {

@@ -311,6 +311,15 @@ export const api = {
   async ingest() {
     return (await axios.post('/api/kb/ingest')).data
   },
+  async uploadKnowledgeFile(payload: { file: File; courseLineId?: string; taskId?: string }) {
+    const formData = new FormData()
+    formData.append('file', payload.file)
+    if (payload.courseLineId) formData.append('courseLineId', payload.courseLineId)
+    if (payload.taskId) formData.append('taskId', payload.taskId)
+    return (await axios.post('/api/kb/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })).data
+  },
   async analytics() {
     return (await axios.get('/api/teacher/analytics')).data
   },
@@ -365,28 +374,61 @@ export const api = {
     taskId: string
     studentId: string
     studentInput: string
+    questionId?: string
+    codeDraft?: string
   }): Promise<{
     sessionId: string
     intent: string
     steps: Array<{ title: string; goal: string; knowledge_points: string[] }>
     currentStep: number
+    totalSteps: number
+    currentStepTitle?: string
     message: string
+    citations: Citation[]
     status: string
   }> {
     return (await axios.post('/api/guided/start', payload)).data
+  },
+  async streamGuidedStart(
+    payload: {
+      courseLineId: string
+      moduleId: string
+      taskId: string
+      studentId: string
+      studentInput: string
+      questionId?: string
+      codeDraft?: string
+    },
+    handlers: GuidedStreamHandlers,
+  ) {
+    await streamSse('/api/guided/start/stream', payload, handlers)
   },
   async guidedMessage(payload: {
     sessionId: string
     studentId: string
     message: string
+    codeDraft?: string
   }): Promise<{
     sessionId: string
     currentStep: number
     totalSteps: number
+    currentStepTitle?: string
     message: string
+    citations: Citation[]
     status: string
   }> {
     return (await axios.post('/api/guided/message', payload)).data
+  },
+  async streamGuidedMessage(
+    payload: {
+      sessionId: string
+      studentId: string
+      message: string
+      codeDraft?: string
+    },
+    handlers: GuidedStreamHandlers,
+  ) {
+    await streamSse('/api/guided/message/stream', payload, handlers)
   },
 
   // ---------- 知识库管理 ----------
@@ -497,6 +539,47 @@ export const api = {
   }> {
     return (await axios.get('/api/teacher/feedback/all')).data
   },
+}
+
+interface GuidedStreamHandlers {
+  onStatus?: (data: any) => void
+  onMetadata?: (data: any) => void
+  onDelta?: (text: string) => void
+  onDone?: (data: any) => void
+  onError?: (data: any) => void
+}
+
+async function streamSse(url: string, payload: Record<string, unknown>, handlers: GuidedStreamHandlers) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify(payload),
+  })
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => '')
+    throw new Error(text || `stream request failed: ${response.status}`)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const events = buffer.split('\n\n')
+    buffer = events.pop() || ''
+    for (const eventText of events) {
+      const parsed = parseSseEvent(eventText)
+      if (!parsed) continue
+      if (parsed.event === 'status') handlers.onStatus?.(parsed.data)
+      if (parsed.event === 'metadata') handlers.onMetadata?.(parsed.data)
+      if (parsed.event === 'delta') handlers.onDelta?.(parsed.data.text || '')
+      if (parsed.event === 'done') handlers.onDone?.(parsed.data)
+      if (parsed.event === 'error') handlers.onError?.(parsed.data)
+    }
+  }
 }
 
 function parseSseEvent(raw: string) {
