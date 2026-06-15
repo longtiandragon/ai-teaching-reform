@@ -217,7 +217,7 @@ const progressPercent = computed(() => {
 
 const flowItems = [
   { icon: '◎', title: '读需求', desc: '理解本关要解决的业务或课程任务。' },
-  { icon: '◈', title: '找依据', desc: '从课程标准、需求、SQL 和源码中找证据。' },
+  { icon: '◈', title: '找依据', desc: '从需求文档、接口、SQL 和源码中找证据。' },
   { icon: '◉', title: '补代码', desc: '只补关键片段，不生成完整项目。' },
   { icon: '◎', title: '自测', desc: '做题、看反馈，再提交实现检查。' },
   { icon: '◈', title: '复盘', desc: '总结为什么这么做和下一步问题。' },
@@ -248,6 +248,10 @@ async function switchCourse(courseId: string) {
 
 async function enterRouteItem(itemId?: string) {
   if (!itemId) return
+  if (publishedMap.value[itemId]?.length) {
+    toggleQuestions(itemId)
+    return
+  }
   await router.push({ name: 'task-workspace', params: { taskId: itemId } })
 }
 

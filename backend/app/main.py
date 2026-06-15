@@ -31,8 +31,10 @@ from backend.app.models import (
     SelfCheckSubmission,
     SessionBootstrapResponse,
     SessionLoginRequest,
+    SessionLoginResponse,
     UserInfo,
 )
+from backend.app.services.auth import create_access_token, verify_password
 from backend.app.services.analytics import teacher_analytics
 from backend.app.services.agent_tools import list_skills, run_skill
 from backend.app.services.agent_flow import NoCitationError, run_agent_once, stream_agent
@@ -55,13 +57,21 @@ from backend.app.services.course_runtime import (
 )
 from backend.app.services.database import (
     db_exists,
+    get_user_by_login,
     get_user,
     init_db,
     list_classes,
     list_users,
     record_interaction,
     record_learning_event,
+    record_task_submission,
     student_records,
+    list_deleted_question_ids,
+    list_teacher_questions,
+    get_teacher_question,
+    soft_delete_teacher_question,
+    sync_published_questions_seed,
+    upsert_teacher_question,
 )
 from backend.app.services.llm import LLMError, deepseek_client
 from backend.app.services.practice import evaluate_practice
@@ -73,6 +83,10 @@ from backend.app.services import kb_manager, ai_config
 async def lifespan(_: FastAPI):
     init_db()
     sync_course_runtime_seed()
+    sync_published_questions_seed(
+        [question.model_dump() for question in questions_by_course(SPRINGBOOT_COURSE_ID)]
+        + [question.model_dump() for question in questions_by_course(NONGBO_COURSE_ID)]
+    )
     rag_service.ingest_seed()
     yield
 
@@ -143,15 +157,16 @@ async def session_bootstrap() -> SessionBootstrapResponse:
     return SessionBootstrapResponse(classes=classes, users=users)
 
 
-@app.post("/api/session/login", response_model=UserInfo)
-async def session_login(request: SessionLoginRequest) -> UserInfo:
-    row = await asyncio.to_thread(get_user, request.user_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="user not found")
+@app.post("/api/session/login", response_model=SessionLoginResponse)
+async def session_login(request: SessionLoginRequest) -> SessionLoginResponse:
+    row = await asyncio.to_thread(get_user_by_login, request.account)
+    if not row or not verify_password(request.password, row["password_hash"]):
+        raise HTTPException(status_code=401, detail="账号或密码错误")
     item = dict(row)
     classes = {row["id"]: row["name"] for row in await asyncio.to_thread(list_classes)}
     item["class_name"] = classes.get(item.get("class_id"))
-    return UserInfo(**item)
+    user = UserInfo(**item)
+    return SessionLoginResponse(user=user, access_token=create_access_token(item))
 
 
 @app.post("/api/chat", response_model=ChatResponse)
@@ -404,21 +419,23 @@ async def kb_upload(
 from backend.app.data.questions import SEED_QUESTIONS, questions_by_lesson, questions_by_course
 from backend.app.models import Question, QuestionCreateRequest, QuestionListResponse
 
-TEACHER_QUESTIONS: dict[str, Question] = {}  # 教师手动添加的题目
-
-
 def _all_questions(course_id: str) -> list[Question]:
     """合并种子题 + 教师添加的题"""
-    seed = questions_by_course(course_id)
-    teacher = [q for q in TEACHER_QUESTIONS.values() if q.course_id == course_id]
-    return seed + teacher
+    teacher = [_question_from_teacher_row(row) for row in list_teacher_questions(course_id)]
+    teacher_by_id = {question.id: question for question in teacher}
+    deleted_ids = list_deleted_question_ids(course_id)
+    merged: list[Question] = []
+    for question in questions_by_course(course_id):
+        if question.id in deleted_ids:
+            continue
+        merged.append(teacher_by_id.pop(question.id, question))
+    merged.extend(teacher_by_id.values())
+    return merged
 
 
 def _question_lookup() -> dict[str, Question]:
-    return {
-        q.id: q
-        for q in _all_questions(SPRINGBOOT_COURSE_ID) + _all_questions(NONGBO_COURSE_ID)
-    }
+    questions = _all_questions(SPRINGBOOT_COURSE_ID) + _all_questions(NONGBO_COURSE_ID)
+    return {q.id: q for q in questions}
 
 
 @app.get("/api/questions", response_model=QuestionListResponse)
@@ -434,25 +451,57 @@ async def create_question(request: QuestionCreateRequest) -> Question:
     import uuid
     qid = f"teacher-{uuid.uuid4().hex[:8]}"
     q = Question(id=qid, **request.model_dump())
-    TEACHER_QUESTIONS[qid] = q
+    await asyncio.to_thread(upsert_teacher_question, q.model_dump())
     return q
 
 
 @app.put("/api/questions/{question_id}", response_model=Question)
 async def update_question(question_id: str, request: QuestionCreateRequest) -> Question:
-    if question_id not in TEACHER_QUESTIONS:
-        raise HTTPException(status_code=404, detail="question not found (seed questions are read-only)")
+    if question_id not in _question_lookup():
+        raise HTTPException(status_code=404, detail="question not found")
     q = Question(id=question_id, **request.model_dump())
-    TEACHER_QUESTIONS[question_id] = q
+    await asyncio.to_thread(upsert_teacher_question, q.model_dump())
     return q
 
 
 @app.delete("/api/questions/{question_id}")
 async def delete_question(question_id: str) -> dict:
-    if question_id not in TEACHER_QUESTIONS:
-        raise HTTPException(status_code=404, detail="question not found or seed questions cannot be deleted")
-    del TEACHER_QUESTIONS[question_id]
+    if await asyncio.to_thread(get_all_published_for_question, question_id):
+        raise HTTPException(status_code=409, detail="published questions must be unpublished before deletion")
+    existing = _question_lookup().get(question_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="question not found")
+    if not await asyncio.to_thread(get_teacher_question, question_id):
+        await asyncio.to_thread(upsert_teacher_question, existing.model_dump())
+    ok = await asyncio.to_thread(soft_delete_teacher_question, question_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="question not found")
     return {"deleted": question_id}
+
+
+@app.post("/api/questions/{question_id}/generate-explanation", response_model=Question)
+async def generate_question_explanation(question_id: str) -> Question:
+    question = _question_lookup().get(question_id)
+    if not question:
+        raise HTTPException(status_code=404, detail="question not found")
+    prompt = (
+        "请根据题目、标准答案和项目上下文生成一段教师可直接使用的解析。"
+        "要求：说明为什么答案正确，指出相关 SpringBoot/农宝项目代码或数据库依据，不要编造不存在的类名。\n"
+        f"题型：{question.type}\n题干：{question.stem}\n答案：{question.answer}"
+    )
+    try:
+        result = await run_agent_once(ChatRequest(
+            course_id=question.course_id,
+            lesson_id=question.lesson_id,
+            question=prompt,
+            mode="teacher",
+        ))
+        explanation = result.get("answer", "").strip()
+    except (NoCitationError, LLMError) as exc:
+        raise HTTPException(status_code=getattr(exc, "status_code", 422), detail=str(exc)) from exc
+    updated = question.model_copy(update={"explanation": explanation})
+    await asyncio.to_thread(upsert_teacher_question, updated.model_dump())
+    return updated
 
 
 @app.post("/api/guided/start", response_model=GuidedSessionResponse)
@@ -472,6 +521,65 @@ async def guided_start(request: GuidedStartRequest) -> GuidedSessionResponse:
     except LLMError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return GuidedSessionResponse(**result)
+
+
+@app.post("/api/ai/local-check-record")
+async def local_check_record(payload: dict) -> dict:
+    required = ["courseLineId", "moduleId", "taskId", "studentId", "studentInput", "result"]
+    if any(not payload.get(key) for key in required):
+        raise HTTPException(status_code=400, detail="missing record payload")
+
+    task = get_task_detail(str(payload["taskId"]))
+    if task.course_line_id != payload["courseLineId"]:
+        raise HTTPException(status_code=404, detail="task not found in course line")
+
+    result = payload.get("result") or {}
+    score = _safe_int(result.get("score"), 0)
+    passed = bool(result.get("passed"))
+    level = str(result.get("level") or ("passed" if passed else "needs_revision"))
+    reply = str(result.get("reply") or "")
+    rubric_scores = result.get("rubricScores") if isinstance(result.get("rubricScores"), list) else []
+    evidence = result.get("evidence") if isinstance(result.get("evidence"), list) else []
+    student_input = str(payload["studentInput"])
+
+    await asyncio.to_thread(
+        record_task_submission,
+        student_id=str(payload["studentId"]),
+        course_line_id=str(payload["courseLineId"]),
+        module_id=str(payload["moduleId"]),
+        task_id=str(payload["taskId"]),
+        artifact_type=payload.get("artifactType"),
+        student_input=student_input,
+        score=score,
+        passed=passed,
+        level=level,
+        reply=reply,
+        rubric_scores=rubric_scores,
+        evidence=evidence,
+        next_task_id=None,
+    )
+    await asyncio.to_thread(
+        record_interaction,
+        kind="local_check",
+        course_id=str(payload["courseLineId"]),
+        lesson_id=str(payload["taskId"]),
+        question=student_input,
+        answer=reply,
+        score=score,
+        student_id=str(payload["studentId"]),
+    )
+    await asyncio.to_thread(
+        record_learning_event,
+        student_id=str(payload["studentId"]),
+        course_id=str(payload["courseLineId"]),
+        lesson_id=str(payload["taskId"]),
+        kind="ai_check",
+        score=score,
+        code=student_input,
+        feedback=reply,
+        answers=rubric_scores,
+    )
+    return {"ok": True}
 
 
 @app.post("/api/guided/start/stream")
@@ -801,6 +909,32 @@ def _extract_pdf_text(target: Path) -> str:
     return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
+def _question_from_teacher_row(row) -> Question:
+    item = dict(row)
+    options = None
+    if item.get("options_json"):
+        try:
+            options = json.loads(item["options_json"])
+        except json.JSONDecodeError:
+            options = None
+    try:
+        tags = json.loads(item.get("tags_json") or "[]")
+    except json.JSONDecodeError:
+        tags = []
+    return Question(
+        id=item["id"],
+        course_id=item["course_id"],
+        lesson_id=item["lesson_id"],
+        type=item["type"],
+        stem=item["stem"],
+        options=options,
+        answer=item["answer"],
+        explanation=item.get("explanation"),
+        difficulty=item.get("difficulty") or "medium",
+        tags=tags,
+    )
+
+
 def _extract_docx_text(target: Path) -> str:
     from docx import Document
     doc = Document(str(target))
@@ -882,3 +1016,10 @@ def _learning_record_from_row(row) -> LearningRecord:
     except json.JSONDecodeError:
         item["answers"] = []
     return LearningRecord(**item)
+
+
+def _safe_int(value, fallback: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback

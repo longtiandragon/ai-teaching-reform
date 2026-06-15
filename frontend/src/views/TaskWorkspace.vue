@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="workspace-page">
     <div v-if="loading" class="loading-state" role="status">
       <Loader2 class="spin-icon" :size="22" />
@@ -38,7 +38,7 @@
           <button
             type="button"
             class="icon-action primary"
-            :disabled="checkLoading || !codeInput.trim()"
+            :disabled="checkLoading || !canSubmitCheck"
             aria-label="提交验收"
             title="提交验收"
             @click="submitCheck"
@@ -85,6 +85,18 @@
             <span v-if="guidedStatus" class="session-status">{{ guidedStatusLabel }}</span>
           </div>
 
+          <div v-if="showStartGuidedAction" class="understood-actions start-guided-actions">
+            <button
+              type="button"
+              class="understood-button"
+              :disabled="guidedLoading"
+              @click="startQuestionGuidance"
+            >
+              <Bot :size="16" />
+              <span>开始智能体引导</span>
+            </button>
+          </div>
+
           <div v-if="guidedSteps.length" class="guided-stepper" aria-label="引导步骤进度">
             <div class="stepper-top">
               <strong>{{ currentStepTitle }}</strong>
@@ -128,21 +140,34 @@
               :key="index"
               :class="['message-row', msg.role]"
             >
-              <div class="message-avatar" aria-hidden="true">
+              <div v-if="msg.role !== 'system'" class="message-avatar" aria-hidden="true">
                 {{ msg.role === 'assistant' ? 'AI' : '我' }}
               </div>
-              <div class="message-bubble">
+              <div :class="['message-bubble', { 'system-bubble': msg.role === 'system' }]">
                 <div class="message-content" v-html="renderMarkdown(msg.content)"></div>
               </div>
             </article>
 
-            <div v-if="guidedLoading" class="message-row assistant">
+            <div v-if="showGuidedThinking" class="message-row assistant">
               <div class="message-avatar" aria-hidden="true">AI</div>
               <div class="message-bubble pending">
                 <Loader2 class="spin-icon" :size="16" />
-                <span>正在检索资料并生成下一步...</span>
+                <span>{{ guidedThinkingText }}</span>
               </div>
             </div>
+
+          </div>
+
+          <div v-if="showUnderstoodAction" class="understood-actions">
+            <button
+              type="button"
+              class="understood-button"
+              :disabled="guidedLoading"
+              @click="markUnderstood"
+            >
+              <CheckCircle2 :size="16" />
+              <span>已理解，下一步</span>
+            </button>
           </div>
 
           <form class="chat-input" @submit.prevent="sendMessage">
@@ -184,9 +209,31 @@
             <span>{{ qTypeLabel(activeQuestion.type) }}</span>
           </div>
 
-          <div class="editor-shell">
+          <div v-if="activeQuestion && questionOptions(activeQuestion).length" class="question-answer-options">
+            <label
+              v-for="opt in questionOptions(activeQuestion)"
+              :key="opt.key"
+              :class="['answer-option', { selected: selectedOptionKeys.includes(opt.key) }]"
+            >
+              <input
+                :type="activeQuestion.type === 'multi_choice' ? 'checkbox' : 'radio'"
+                :name="activeQuestion.id"
+                :value="opt.key"
+                :checked="selectedOptionKeys.includes(opt.key)"
+                @change="toggleOptionAnswer(opt.key)"
+              />
+              <strong>{{ opt.key }}</strong>
+              <span>{{ opt.text }}</span>
+            </label>
+          </div>
+          <div v-if="activeQuestion && isObjectiveQuestion(activeQuestion)" class="selected-answer-summary">
+            <strong>已选答案</strong>
+            <span>{{ selectedAnswerKeys.length ? selectedAnswerKeys.join('、') : '请先选择答案' }}</span>
+          </div>
+
+          <div v-if="!activeQuestion || !isObjectiveQuestion(activeQuestion)" class="editor-shell">
             <div class="editor-gutter" aria-hidden="true">
-              <span v-for="n in 24" :key="n">{{ n }}</span>
+              <span v-for="n in editorLineCount" :key="n">{{ n }}</span>
             </div>
             <label class="sr-only" for="answer-editor">代码或答案输入区</label>
             <textarea
@@ -246,6 +293,13 @@
             </ul>
           </div>
         </div>
+
+        <div v-if="activeQuestion && checkResult.passed" class="result-actions">
+          <button type="button" class="icon-action primary" @click="goNextQuestionOrRoadmap">
+            <CheckCircle2 :size="16" />
+            <span>{{ nextQuestion ? '进入下一题' : '返回关卡路线' }}</span>
+          </button>
+        </div>
       </section>
     </template>
 
@@ -273,7 +327,7 @@ import {
 import { api, type AICheckResult, type Citation, type LearningTaskDetail, type Question } from '../api'
 import { useSessionStore } from '../stores/session'
 
-type ChatRole = 'assistant' | 'student'
+type ChatRole = 'assistant' | 'student' | 'system'
 
 interface ChatMessage {
   role: ChatRole
@@ -306,6 +360,7 @@ const loading = ref(true)
 const loadError = ref('')
 const task = ref<LearningTaskDetail | null>(null)
 const codeInput = ref('')
+const selectedAnswerKeys = ref<string[]>([])
 const userInput = ref('')
 const messages = ref<ChatMessage[]>([])
 const chatContainer = ref<HTMLElement | null>(null)
@@ -316,6 +371,7 @@ const guidedLoading = ref(false)
 const checkResult = ref<AICheckResult | null>(null)
 
 const activeQuestion = ref<Question | null>(null)
+const taskQuestions = ref<Question[]>([])
 const guidedSessionId = ref('')
 const guidedIntent = ref('')
 const guidedStatus = ref('')
@@ -323,6 +379,8 @@ const guidedSteps = ref<GuidedStep[]>([])
 const guidedCurrentStep = ref(0)
 const guidedTotalSteps = ref(0)
 const guidedCitations = ref<Citation[]>([])
+const streamingAssistantVisible = ref(false)
+const guidedThinkingText = ref('AI 正在准备引导...')
 
 const studentId = computed(() => session.currentUser?.id || '')
 
@@ -338,6 +396,36 @@ const guidedStatusLabel = computed(() => {
   return guidedStatus.value || '引导中'
 })
 
+const showUnderstoodAction = computed(() =>
+  Boolean(
+    task.value &&
+      messages.value.length &&
+      (guidedSessionId.value || activeQuestion.value) &&
+      guidedStatus.value !== 'completed',
+  ),
+)
+const showStartGuidedAction = computed(() =>
+  Boolean(false),
+)
+const showGuidedThinking = computed(() => guidedLoading.value && !streamingAssistantVisible.value)
+const selectedOptionKeys = computed(() => {
+  if (!activeQuestion.value || !isObjectiveQuestion(activeQuestion.value)) return []
+  return [...selectedAnswerKeys.value]
+})
+const submissionInput = computed(() => {
+  if (activeQuestion.value && isObjectiveQuestion(activeQuestion.value)) {
+    return selectedAnswerKeys.value.join('')
+  }
+  return codeInput.value
+})
+const canSubmitCheck = computed(() => Boolean(submissionInput.value.trim()))
+const editorLineCount = computed(() => Math.max(24, codeInput.value.split('\n').length))
+const nextQuestion = computed(() => {
+  if (!activeQuestion.value) return null
+  const index = taskQuestions.value.findIndex((item) => item.id === activeQuestion.value?.id)
+  return index >= 0 ? taskQuestions.value[index + 1] || null : null
+})
+
 onMounted(async () => {
   const taskId = route.params.taskId as string | undefined
   try {
@@ -347,6 +435,7 @@ onMounted(async () => {
     }
 
     task.value = await api.learningTask(taskId)
+    await loadRecordSnapshot()
     const questionId = firstQueryValue(route.query.questionId)
     if (questionId) {
       await loadActiveQuestion(taskId, questionId)
@@ -359,6 +448,33 @@ onMounted(async () => {
   }
 
 })
+
+async function loadRecordSnapshot() {
+  const recordId = firstQueryValue(route.query.recordId)
+  if (!recordId || !studentId.value) return
+  const res = await api.studentRecords(studentId.value)
+  const record = res.records.find((item) => String(item.id) === recordId)
+  if (!record) return
+  codeInput.value = record.code || record.notes || ''
+  messages.value = [
+    { role: 'student', content: `历史提交：\n\n${codeInput.value || '无提交内容'}` },
+    { role: 'assistant', content: record.feedback || '本次记录没有保存 AI 反馈。' },
+  ]
+  if (typeof record.score === 'number') {
+    checkResult.value = {
+      passed: record.score >= 60,
+      score: record.score,
+      level: record.score >= 60 ? 'passed' : 'needs_revision',
+      reply: record.feedback || '历史验收记录',
+      strengths: [],
+      problems: [],
+      nextActions: [],
+      evidence: [],
+      rubricScores: [],
+      nextTaskUnlocked: false,
+    }
+  }
+}
 
 function firstQueryValue(value: unknown): string | undefined {
   if (Array.isArray(value)) return typeof value[0] === 'string' ? value[0] : undefined
@@ -435,29 +551,40 @@ async function sendMessage() {
   await scrollToBottom()
 }
 
+async function markUnderstood() {
+  if (!task.value || guidedLoading.value) return
+  if (!guidedSessionId.value && activeQuestion.value) {
+    await startQuestionGuidance()
+    return
+  }
+  if (!guidedSessionId.value) return
+
+  const message = '已理解'
+  messages.value.push({ role: 'student', content: message })
+  await scrollToBottom()
+
+  await sendGuidedMessage(message)
+}
+
 async function getHint() {
   if (!task.value || hintLoading.value || guidedLoading.value) return
 
+  messages.value.push({ role: 'system', content: '学生发起了提示' })
+  await scrollToBottom()
   hintLoading.value = true
   try {
     const prompt = activeQuestion.value
       ? `请只围绕当前发布题目给一点提示，不要改写成别的任务，也不要直接给完整答案。\n题干：${activeQuestion.value.stem}`
       : '请只给我当前步骤的一点提示，不要直接给完整答案。'
-    if (guidedSessionId.value) {
-      await sendGuidedMessage(prompt)
-    } else if (activeQuestion.value) {
-      await startGuidedSession(prompt)
-    } else {
-      const res = await api.aiTaskChat({
-        courseLineId: task.value.course_line_id,
-        moduleId: task.value.module_id,
-        taskId: task.value.id,
-        studentId: studentId.value,
-        question: prompt,
-      })
-      messages.value.push({ role: 'assistant', content: res.answer })
-      await scrollToBottom()
-    }
+    const res = await api.aiTaskChat({
+      courseLineId: task.value.course_line_id,
+      moduleId: task.value.module_id,
+      taskId: task.value.id,
+      studentId: studentId.value,
+      question: prompt,
+    })
+    messages.value.push({ role: 'assistant', content: res.answer })
+    await scrollToBottom()
   } catch (error: any) {
     messages.value.push({ role: 'assistant', content: `**提示生成失败**\n\n${errorMessage(error)}` })
     await scrollToBottom()
@@ -476,6 +603,11 @@ function showQuestionIntro() {
   ]
 }
 
+async function startQuestionGuidance() {
+  if (!activeQuestion.value || guidedSessionId.value || guidedLoading.value) return
+  await startGuidedSession('请从读题与定位资料开始，带我分步完成这道题。')
+}
+
 function buildQuestionIntro(question: Question): string {
   const optionText = question.options?.length
     ? `\n\n选项：\n${question.options.map((item) => `- ${item.key}. ${item.text}`).join('\n')}`
@@ -491,12 +623,15 @@ async function startGuidedSession(studentInput: string) {
   if (!task.value) return
 
   guidedLoading.value = true
+  streamingAssistantVisible.value = false
+  guidedThinkingText.value = 'AI 正在准备引导...'
   let assistantIndex = -1
   const ensureAssistantMessage = () => {
     if (assistantIndex < 0) {
       messages.value.push({ role: 'assistant', content: '' })
       assistantIndex = messages.value.length - 1
     }
+    streamingAssistantVisible.value = true
   }
   try {
     await api.streamGuidedStart(
@@ -510,6 +645,9 @@ async function startGuidedSession(studentInput: string) {
         codeDraft: codeInput.value,
       },
       {
+        onStatus: (data) => {
+          guidedThinkingText.value = data?.message || 'AI 正在准备引导...'
+        },
         onMetadata: applyGuidedMetadata,
         onDelta: async (text) => {
           ensureAssistantMessage()
@@ -527,6 +665,7 @@ async function startGuidedSession(studentInput: string) {
     messages.value.push({ role: 'assistant', content: `**智能体启动失败**\n\n${errorMessage(error)}` })
   } finally {
     guidedLoading.value = false
+    streamingAssistantVisible.value = false
   }
   await scrollToBottom()
 }
@@ -538,12 +677,15 @@ async function sendGuidedMessage(message: string) {
   }
 
   guidedLoading.value = true
+  streamingAssistantVisible.value = false
+  guidedThinkingText.value = 'AI 正在准备回应...'
   let assistantIndex = -1
   const ensureAssistantMessage = () => {
     if (assistantIndex < 0) {
       messages.value.push({ role: 'assistant', content: '' })
       assistantIndex = messages.value.length - 1
     }
+    streamingAssistantVisible.value = true
   }
   try {
     await api.streamGuidedMessage(
@@ -554,6 +696,9 @@ async function sendGuidedMessage(message: string) {
         codeDraft: codeInput.value,
       },
       {
+        onStatus: (data) => {
+          guidedThinkingText.value = data?.message || 'AI 正在准备回应...'
+        },
         onMetadata: applyGuidedMetadata,
         onDelta: async (text) => {
           ensureAssistantMessage()
@@ -571,6 +716,7 @@ async function sendGuidedMessage(message: string) {
     messages.value.push({ role: 'assistant', content: `**智能体回复失败**\n\n${errorMessage(error)}` })
   } finally {
     guidedLoading.value = false
+    streamingAssistantVisible.value = false
   }
   await scrollToBottom()
 }
@@ -601,12 +747,26 @@ function finalizeGuidedResponse(res: GuidedResponse, assistantIndex: number) {
 }
 
 async function submitCheck() {
-  if (!task.value || !codeInput.value.trim()) return
+  if (!task.value || !submissionInput.value.trim()) return
 
   checkLoading.value = true
   try {
     if (activeQuestion.value) {
-      checkResult.value = checkPublishedQuestion(activeQuestion.value, codeInput.value)
+      const submittedInput = submissionInput.value
+      const localResult = checkPublishedQuestion(activeQuestion.value, submittedInput)
+      checkResult.value = localResult
+      messages.value.push({ role: 'student', content: `提交答案：\n\n${formatSubmittedAnswer(activeQuestion.value, submittedInput)}` })
+      messages.value.push({ role: 'assistant', content: localResult.reply })
+      await api.recordLocalCheck({
+        courseLineId: task.value.course_line_id,
+        moduleId: task.value.module_id,
+        taskId: task.value.id,
+        studentId: studentId.value,
+        artifactType: task.value.required_artifact_type,
+        studentInput: submittedInput,
+        result: localResult,
+      })
+      await scrollToBottom()
       return
     }
 
@@ -616,9 +776,12 @@ async function submitCheck() {
       taskId: task.value.id,
       studentId: studentId.value,
       artifactType: task.value.required_artifact_type,
-      studentInput: codeInput.value,
+      studentInput: submissionInput.value,
       chatHistory: messages.value,
     })
+    messages.value.push({ role: 'student', content: `提交验收：\n\n${submissionInput.value}` })
+    messages.value.push({ role: 'assistant', content: checkResult.value.reply })
+    await scrollToBottom()
   } catch (error: any) {
     messages.value.push({ role: 'assistant', content: `**验收失败**\n\n${errorMessage(error)}` })
     await scrollToBottom()
@@ -626,15 +789,15 @@ async function submitCheck() {
     checkLoading.value = false
   }
 }
-
 function checkPublishedQuestion(question: Question, rawInput: string): AICheckResult {
   const studentAnswer = normalizeAnswer(extractAnswer(rawInput), question.type)
   const correctAnswer = normalizeAnswer(question.answer, question.type)
   const isObjective = ['single_choice', 'multi_choice', 'true_false'].includes(question.type)
   const subjective = isObjective ? null : evaluateSubjectiveQuestion(question, rawInput)
   const passed = isObjective ? studentAnswer === correctAnswer : Boolean(subjective?.passed)
-  const studentText = question.options?.find((item) => normalizeAnswer(item.key, question.type) === studentAnswer)?.text
-  const correctText = question.options?.find((item) => normalizeAnswer(item.key, question.type) === correctAnswer)?.text
+  const options = questionOptions(question)
+  const studentText = options.find((item) => normalizeAnswer(item.key, question.type) === studentAnswer)?.text
+  const correctText = options.find((item) => normalizeAnswer(item.key, question.type) === correctAnswer)?.text
   const reply = passed
     ? [
         `这道${qTypeLabel(question.type)}回答正确。`,
@@ -706,8 +869,12 @@ function evaluateSubjectiveQuestion(question: Question, rawInput: string): Subje
     return evaluateCreateTableSql(answer)
   }
 
+  if (question.type === 'code_fill') {
+    return evaluateCodeFillQuestion(question, answer)
+  }
+
   const codeCheck = evaluateCodeSyntax(question, answer)
-  const expectedTokens = extractExpectedTokens(`${question.answer}\n${question.explanation || ''}`)
+  const expectedTokens = extractExpectedTokens(question.answer)
   const hitTokens = expectedTokens.filter((token) => lower.includes(token.toLowerCase()))
   let score = expectedTokens.length
     ? Math.round((hitTokens.length / expectedTokens.length) * 100)
@@ -716,7 +883,7 @@ function evaluateSubjectiveQuestion(question: Question, rawInput: string): Subje
     score = Math.min(score, 45)
   }
   return {
-    passed: codeCheck.errors.length === 0 && score >= 80 && answer.trim().length >= 20,
+    passed: codeCheck.errors.length === 0 && score >= 80 && answer.trim().length >= 6,
     score,
     strengths: [
       ...(codeCheck.language ? [`${codeCheck.language} 结构检查通过`] : []),
@@ -728,13 +895,117 @@ function evaluateSubjectiveQuestion(question: Question, rawInput: string): Subje
     ],
     suggestion: codeCheck.errors.length
       ? '请先把代码块补成语法结构完整的代码，再提交验收。'
-      : '请补充题目解析中要求的关键概念或实现要点，不要只填一个选项字母。',
+      : '请对照标准答案补充题干要求的关键内容。解析只用于讲解，不会作为必须填写的答案。',
   }
 }
 
 interface CodeSyntaxCheck {
   language: string
   errors: string[]
+}
+
+interface FillRequirement {
+  label: string
+  value: string
+  kind: 'xml-tag' | 'token'
+  tag?: string
+}
+
+function evaluateCodeFillQuestion(question: Question, answer: string): SubjectiveCheck {
+  const codeCheck = evaluateCodeSyntax(question, answer)
+  const requirements = extractCodeFillRequirements(question.answer)
+  const hits = requirements.filter((item) => matchesFillRequirement(answer, item))
+  const missing = requirements.filter((item) => !matchesFillRequirement(answer, item)).map((item) => item.label)
+  const score = requirements.length
+    ? Math.round((hits.length / requirements.length) * 100)
+    : (answer.trim().length >= 6 ? 80 : 20)
+  const finalScore = codeCheck.errors.length ? Math.min(score, 45) : score
+
+  return {
+    passed: codeCheck.errors.length === 0 && finalScore >= 80,
+    score: finalScore,
+    strengths: [
+      ...(codeCheck.language ? [`${codeCheck.language} 结构检查通过`] : []),
+      ...(hits.length ? [`命中答案结构：${hits.slice(0, 4).map((item) => item.label).join('、')}`] : []),
+    ],
+    missing: [...codeCheck.errors, ...missing.slice(0, 6)],
+    suggestion: codeCheck.errors.length
+      ? '请先把代码片段补成结构完整的代码，再提交验收。'
+      : '请补齐标准答案中的标签、注解、方法名、字段或关键代码片段；不需要照抄解析里的中文说明。',
+  }
+}
+
+function extractCodeFillRequirements(standardAnswer: string): FillRequirement[] {
+  const plain = stripCodeFence(standardAnswer)
+  const requirements: FillRequirement[] = []
+  const xmlMatches = Array.from(plain.matchAll(/<([A-Za-z][\w.-]*)>([\s\S]*?)<\/\1>/g))
+  for (const match of xmlMatches) {
+    const tag = match[1]
+    const value = match[2].trim()
+    requirements.push({
+      kind: 'xml-tag',
+      tag,
+      value,
+      label: value ? `<${tag}>${value}</${tag}>` : `<${tag}>`,
+    })
+  }
+  if (requirements.length) return dedupeFillRequirements(requirements)
+
+  const quoted = Array.from(plain.matchAll(/["'`]([^"'`]{2,})["'`]/g)).map((match) => match[1].trim())
+  const identifiers = plain.match(/@?[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/g) || []
+  const codeTokens = [...quoted, ...identifiers]
+    .map((token) => token.replace(/^@/, '').trim())
+    .filter((token) => isMeaningfulCodeToken(token))
+  for (const token of codeTokens) {
+    requirements.push({ kind: 'token', value: token, label: token })
+  }
+  return dedupeFillRequirements(requirements).slice(0, 10)
+}
+
+function dedupeFillRequirements(items: FillRequirement[]): FillRequirement[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const key = `${item.kind}:${item.tag || ''}:${item.value.toLowerCase()}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function isMeaningfulCodeToken(token: string): boolean {
+  const lower = token.toLowerCase()
+  if (token.length < 2) return false
+  if (/^\d+$/.test(token)) return false
+  return ![
+    'public', 'private', 'protected', 'class', 'interface', 'return', 'new', 'void', 'string',
+    'integer', 'long', 'boolean', 'true', 'false', 'null', 'this', 'super', 'import', 'package',
+    'static', 'final', 'extends', 'implements', 'if', 'else', 'for', 'while',
+  ].includes(lower)
+}
+
+function matchesFillRequirement(answer: string, requirement: FillRequirement): boolean {
+  if (requirement.kind === 'xml-tag' && requirement.tag) {
+    const tagPattern = new RegExp(`<${escapeRegExp(requirement.tag)}\\b[^>]*>([\\s\\S]*?)<\\/${escapeRegExp(requirement.tag)}>`, 'i')
+    const match = answer.match(tagPattern)
+    if (!match) return false
+    const actual = normalizeComparableCode(match[1])
+    const expected = normalizeComparableCode(requirement.value)
+    if (!expected) return true
+    if (requirement.tag.toLowerCase() === 'version' && /^\d+(?:\.\d+){1,3}(?:[-.\w]*)?$/.test(actual)) return true
+    return actual === expected
+  }
+  return normalizeComparableCode(answer).includes(normalizeComparableCode(requirement.value))
+}
+
+function normalizeComparableCode(value: string): string {
+  return stripCodeFence(value)
+    .replace(/\s+/g, '')
+    .replace(/["'`]/g, '')
+    .toLowerCase()
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 function evaluateCodeSyntax(question: Question, answer: string): CodeSyntaxCheck {
@@ -1075,6 +1346,11 @@ function extractAnswer(rawInput: string): string {
 }
 
 function normalizeAnswer(value: string, type: string): string {
+  if (type === 'true_false') {
+    const lower = value.trim().toLowerCase()
+    if (['true', 't', 'yes', 'y', '1', '正确', '对', '是'].includes(lower)) return 'T'
+    if (['false', 'f', 'no', 'n', '0', '错误', '错', '否'].includes(lower)) return 'F'
+  }
   const cleaned = value
     .replace(/[`"'，。；;、\s]/g, '')
     .replace(/[（）()]/g, '')
@@ -1087,20 +1363,101 @@ function normalizeAnswer(value: string, type: string): string {
   return cleaned.slice(0, 1)
 }
 
+function isObjectiveQuestion(question: Question): boolean {
+  return ['single_choice', 'multi_choice', 'true_false'].includes(question.type)
+}
+
+function formatSubmittedAnswer(question: Question, value: string): string {
+  if (!isObjectiveQuestion(question)) return value
+  const optionText = questionOptions(question)
+    ?.filter((item) => value.includes(item.key))
+    .map((item) => `${item.key}. ${item.text}`)
+    .join('\n')
+  return optionText ? `${value}\n${optionText}` : value
+}
+
+function questionOptions(question: Question) {
+  if (question.options?.length) return question.options
+  if (question.type === 'true_false') {
+    return [
+      { key: 'T', text: '正确' },
+      { key: 'F', text: '错误' },
+    ]
+  }
+  return []
+}
+
 async function loadActiveQuestion(taskId: string, questionId: string) {
   const res = await api.publishedQuestions(taskId)
+  taskQuestions.value = res.questions
   activeQuestion.value = res.questions.find((item) => item.id === questionId) || null
   if (!activeQuestion.value) return
 
-  if (!codeInput.value.trim()) {
-    codeInput.value = activeQuestion.value.type === 'code_fill'
-      ? '// 在这里补全代码\n'
-      : '我的答案：'
+  resetAnswerForQuestion(activeQuestion.value)
+  prepareLocalGuidedSteps(activeQuestion.value)
+}
+
+function resetAnswerForQuestion(question: Question) {
+  selectedAnswerKeys.value = []
+  if (isObjectiveQuestion(question)) {
+    codeInput.value = ''
+    return
   }
+  if (!codeInput.value.trim()) {
+    codeInput.value = question.type === 'code_fill'
+      ? '// 在这里补全代码\n'
+      : ''
+  }
+}
+
+function toggleOptionAnswer(key: string) {
+  if (!activeQuestion.value) return
+  if (activeQuestion.value.type === 'multi_choice') {
+    const values = new Set(selectedAnswerKeys.value)
+    if (values.has(key)) values.delete(key)
+    else values.add(key)
+    selectedAnswerKeys.value = Array.from(values).sort()
+    return
+  }
+  selectedAnswerKeys.value = [key]
+}
+
+function prepareLocalGuidedSteps(question: Question) {
+  guidedSteps.value = [
+    { title: '读题定位', goal: '先确认题型、题干要求和需要引用的项目知识点。', knowledge_points: [] },
+    { title: '分析答案', goal: isObjectiveQuestion(question) ? '逐项判断选项，排除错误答案。' : '拆解标准答案需要覆盖的关键点。', knowledge_points: [] },
+    { title: '提交验收', goal: '完成作答后提交验收，通过后进入下一题或返回关卡路线。', knowledge_points: [] },
+  ]
+  guidedCurrentStep.value = 0
+  guidedTotalSteps.value = guidedSteps.value.length
+  guidedStatus.value = 'waiting'
+}
+async function goNextQuestionOrRoadmap() {
+  if (!task.value) return
+  if (nextQuestion.value) {
+    const q = nextQuestion.value
+    checkResult.value = null
+    activeQuestion.value = q
+    guidedSessionId.value = ''
+    guidedIntent.value = ''
+    guidedStatus.value = ''
+    guidedSteps.value = []
+    guidedCurrentStep.value = 0
+    guidedTotalSteps.value = 0
+    guidedCitations.value = []
+    resetAnswerForQuestion(q)
+    prepareLocalGuidedSteps(q)
+    showQuestionIntro()
+    await router.replace({ name: 'task-workspace', params: { taskId: task.value.id }, query: { questionId: q.id } })
+    await scrollToBottom()
+    return
+  }
+  await router.push({ path: '/student', query: { course: task.value.course_line_id } })
 }
 
 function clearActiveQuestion() {
   activeQuestion.value = null
+  selectedAnswerKeys.value = []
   guidedSessionId.value = ''
   guidedIntent.value = ''
   guidedStatus.value = ''
@@ -1585,6 +1942,24 @@ function errorMessage(error: any): string {
   border-color: #bfdbfe;
 }
 
+.message-row.system {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 14px;
+}
+
+.system-bubble {
+  max-width: 80%;
+  padding: 5px 10px;
+  border-color: transparent;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .message-avatar {
   width: 34px;
   height: 34px;
@@ -1653,6 +2028,32 @@ function errorMessage(error: any): string {
   color: inherit;
 }
 
+.understood-actions {
+  display: flex;
+  justify-content: flex-start;
+  padding: 0 12px 12px;
+  background: #f8fafc;
+}
+
+.understood-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.understood-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .chat-input {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
@@ -1716,15 +2117,65 @@ function errorMessage(error: any): string {
   font-weight: 700;
 }
 
+.question-answer-options {
+  display: grid;
+  gap: 8px;
+  margin: 12px 16px 0;
+}
+
+.answer-option {
+  display: grid;
+  grid-template-columns: 18px 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #d7dde6;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  cursor: pointer;
+}
+
+.answer-option.selected {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.answer-option span {
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.selected-answer-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 16px 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(37, 99, 235, 0.16);
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.06);
+  color: #1e3a8a;
+  font-size: 13px;
+}
+
+.selected-answer-summary span {
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
 .editor-shell {
   flex: 1;
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr);
-  min-height: 520px;
+  min-height: 320px;
+  max-height: 58vh;
   margin: 12px 16px 0;
   border: 1px solid #d7dde6;
   border-radius: 8px;
-  overflow: hidden;
+  overflow: auto;
   background: #0f172a;
 }
 
@@ -1744,8 +2195,9 @@ function errorMessage(error: any): string {
 
 .code-editor {
   width: 100%;
-  min-height: 520px;
-  resize: none;
+  min-height: 100%;
+  height: max-content;
+  resize: vertical;
   border: 0;
   padding: 12px 14px;
   background: #0f172a;
@@ -1836,6 +2288,12 @@ function errorMessage(error: any): string {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 12px;
+}
+
+.result-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
 }
 
 .result-block {
@@ -1951,11 +2409,9 @@ function errorMessage(error: any): string {
 
   .editor-shell {
     grid-template-columns: 34px minmax(0, 1fr);
-    min-height: 420px;
   }
 
   .code-editor {
-    min-height: 420px;
     font-size: 13px;
   }
 }

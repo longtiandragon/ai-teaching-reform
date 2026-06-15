@@ -12,9 +12,13 @@ from backend.app.models import Citation
 
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_+-]*|\d+|[\u4e00-\u9fff]+")
+STRUCTURED_OBJECT_PATTERNS = (
+    re.compile(r"\b[a-z]{2,}_[a-z0-9_]+\b", re.I),
+    re.compile(r"\b[\w.-]+\.(?:java|xml|sql|vue|ts|js|py|md|yml|yaml|json|properties)\b", re.I),
+    re.compile(r"/api/[A-Za-z0-9_./{}:-]+", re.I),
+)
 PROJECT_ROOT = ROOT_DIR / "农宝后台管理系统项目1-5-20260609" / "农宝后台管理系统项目1-5"
 COURSE_MATERIALS_DIR = ROOT_DIR / "docs" / "course-materials"
-COURSE_STANDARD_DOC = ROOT_DIR / "孙立晔+《Web系统应用开发一》+课程标准_24软.doc"
 ROOT_NONGBO_SQL = ROOT_DIR / "nb_database.sql"
 
 
@@ -102,8 +106,6 @@ class RagService:
         chunks.extend(self._course_material_chunks())
         chunks.extend(self._project_document_chunks())
         chunks.extend(self._sql_schema_chunks())
-        chunks.extend(self._standard_chunks())
-        chunks.extend(self._course_standard_doc_chunks())
         chunks.extend(self._requirement_spec_chunks())
         chunks.extend(self._uploaded_document_chunks())
         self._chunks = [chunk for chunk in chunks if chunk.text.strip()]
@@ -227,6 +229,35 @@ class RagService:
         selected = self._filter_concept_results(query, selected)
         return [self._to_citation(chunk, score, query) for score, chunk in selected[:top_k] if score > 0]
 
+    def structured_object_citations(
+        self,
+        query: str,
+        *,
+        course_id: str | None = None,
+        task_id: str | None = None,
+        limit: int = 3,
+    ) -> list[Citation]:
+        """Return high-confidence local evidence for named project objects."""
+        object_names = self._structured_object_names(query)
+        if not object_names:
+            return []
+
+        matches: list[tuple[float, KnowledgeChunk]] = []
+        for chunk in self._chunks:
+            if not self._allowed(chunk, course_id, task_id):
+                continue
+            haystack = f"{chunk.id} {chunk.title} {chunk.source} {chunk.text}".lower()
+            hit_count = sum(1 for name in object_names if name in haystack)
+            if not hit_count:
+                continue
+            kind_boost = 4.0 if chunk.kind in {"database-schema", "project-document", "task-upload"} else 0.0
+            task_boost = 2.0 if task_id and task_id in chunk.task_ids else 0.0
+            score = 10.0 + hit_count + kind_boost + task_boost + self._score(query, chunk.text)
+            matches.append((score, chunk))
+
+        matches.sort(key=lambda item: item[0], reverse=True)
+        return [self._to_citation(chunk, score, query) for score, chunk in matches[:limit]]
+
     def _try_init_chroma(self, chunks: list[KnowledgeChunk]) -> None:
         try:
             import chromadb
@@ -305,9 +336,22 @@ class RagService:
             boost += self.settings.rag_lesson_boost
         if task_id and task_id in chunk.task_ids:
             boost += 2.0
+        table_names = self._structured_object_names(query)
+        if chunk.kind == "database-schema" and table_names:
+            haystack = f"{chunk.id} {chunk.title} {chunk.text}".lower()
+            if any(table_name in haystack for table_name in table_names):
+                boost += 3.0
         if self._keyword_hits(query, chunk.keywords):
             boost += 0.12
         return boost
+
+    def _structured_object_names(self, query: str) -> list[str]:
+        names = [
+            match.group(0).lower()
+            for pattern in STRUCTURED_OBJECT_PATTERNS
+            for match in pattern.finditer(query)
+        ]
+        return list(dict.fromkeys(names))
 
     def _score(self, query: str, text: str) -> float:
         query_tokens = self._tokens(query)
@@ -451,45 +495,6 @@ class RagService:
                     )
                 )
         return chunks
-
-    def _course_standard_doc_chunks(self) -> list[KnowledgeChunk]:
-        text = self._read_legacy_doc_text(COURSE_STANDARD_DOC)
-        if not text.strip():
-            return []
-        return [
-            KnowledgeChunk(
-                id=f"web-course-standard:{index}",
-                course_id=NONGBO_COURSE_ID,
-                title="《Web应用系统开发一》课程标准",
-                source=self._rel(COURSE_STANDARD_DOC),
-                text=part,
-                kind="course-standard",
-                keywords=tuple(self._tokens(part).keys())[:16],
-            )
-            for index, part in enumerate(self._split_text(text, self.settings.rag_chunk_size))
-        ]
-
-    def _standard_chunks(self) -> list[KnowledgeChunk]:
-        try:
-            from pypdf import PdfReader
-
-            pdf = next(ROOT_DIR.glob("301*.pdf"))
-            reader = PdfReader(str(pdf))
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception:
-            return []
-        return [
-            KnowledgeChunk(
-                id=f"javaweb-standard:{index}",
-                course_id=None,
-                title="JavaWeb 应用开发职业技能等级标准",
-                source=self._rel(pdf),
-                text=part,
-                kind="standard",
-                keywords=tuple(self._tokens(part).keys())[:16],
-            )
-            for index, part in enumerate(self._split_text(text, self.settings.rag_chunk_size))
-        ]
 
     def _requirement_spec_chunks(self) -> list[KnowledgeChunk]:
         try:

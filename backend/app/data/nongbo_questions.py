@@ -466,8 +466,46 @@ CODE_EXERCISES: list[Question] = [
 # ============================================================
 # 全部农宝项目种子题合并
 # ============================================================
+NONGBO_TASK_TOPICS = [
+    ("task-requirement-understanding", "业务需求梳理", "需求文档、模块边界、统一响应 Result 和后台管理入口"),
+    ("task-database-overview", "数据库表结构分析", "nb_expert、nb_graphic_course、nb_service、nb_farm_produce 等真实表字段"),
+    ("task-ssm-config", "SSM 配置文件理解", "web.xml、applicationContext.xml、MyBatis Mapper 和 Druid 数据源"),
+    ("task-ssm-mapper-xml", "Mapper XML 手写 SQL", "动态 SQL、分页 LIMIT、ResultMap、批量删除和条件查询"),
+    ("task-springboot-setup", "Spring Boot 项目搭建", "nbspringproduct、application.yml、启动类、跨域和统一异常"),
+    ("task-expert-crud", "专家管理 CRUD 开发", "NbExpertController、INbExpertService、BaseMapper 和专家表字段"),
+    ("task-course-management", "图文课程管理开发", "nb_graphic_course、publish_status、recommend、封面图片和详情维护"),
+    ("task-policy-module", "补贴政策模块开发", "补贴政策发布、推荐、上下架、政策日期和附件字段"),
+    ("task-service-module", "农事服务模块开发", "服务分类、价格、联系方式、状态筛选和分页排序"),
+    ("task-produce-module", "农产品与农贸市场模块", "农产品分类、市场信息、产地价格和列表查询"),
+    ("task-frontend-integration", "Vue 前端联调", "Vue 3、Element Plus、Axios request.ts、Token 头和分页表格"),
+    ("task-data-dashboard", "数据统计大屏", "COUNT、GROUP BY、模块统计、ECharts 图表和趋势接口"),
+]
+
+
+def make_nongbo_task_questions() -> list[Question]:
+    questions: list[Question] = []
+    for index, (lesson_id, title, focus) in enumerate(NONGBO_TASK_TOPICS, start=1):
+        prefix = f"nongbo-auto-{index:02d}"
+        questions.extend([
+            Question(id=f"{prefix}-01", course_id=COURSE_ID, lesson_id=lesson_id, type="single_choice", stem=f"在「{title}」关卡中，最应该优先核对哪一类真实项目资料？", options=[A(focus), B("只查看页面配色和按钮圆角"), C("随机编写一个与农宝无关的示例"), D("跳过数据库和接口文档直接写结论")], answer="A", explanation=f"该关卡必须围绕真实农宝项目材料展开，重点依据包括：{focus}。", difficulty="easy", tags=[title, "真实项目依据"]),
+            Question(id=f"{prefix}-02", course_id=COURSE_ID, lesson_id=lesson_id, type="single_choice", stem=f"完成「{title}」时，后端接口统一返回结构最符合项目约定的是哪一种？", options=[A("Result.success(data) / Result.error(msg)"), B("直接返回 HTML 字符串"), C("只返回 boolean，不带提示信息"), D("所有接口都返回文件流")], answer="A", explanation="农宝项目后端采用统一 Result 响应，便于前端按 code、msg、data、rows、total 等字段做一致处理。", difficulty="easy", tags=[title, "Result"]),
+            Question(id=f"{prefix}-03", course_id=COURSE_ID, lesson_id=lesson_id, type="multi_choice", stem=f"下列哪些做法适合用于「{title}」的代码实现或联调？", options=[A("先确认表字段、实体类和接口路径"), B("保留分页、条件查询和状态字段的业务含义"), C("把所有业务写在 Controller 中并跳过 Service"), D("前端请求封装中携带 Token 并统一处理错误")], answer="ABD", explanation="真实项目开发要对齐表结构、分层职责和前后端请求规范；Controller 不应承担所有业务逻辑。", difficulty="medium", tags=[title, "分层开发"]),
+            Question(id=f"{prefix}-04", course_id=COURSE_ID, lesson_id=lesson_id, type="multi_choice", stem=f"教师验收「{title}」答案时，可以重点查看哪些证据？", options=[A("是否引用了农宝项目真实类名、表名或接口路径"), B("是否解释了字段状态值的含义"), C("是否只写了空泛的 SpringBoot 概念"), D("是否能说明前端和后端如何对接")], answer="ABD", explanation="验收要看项目证据链，不能只写泛泛而谈的概念。", difficulty="medium", tags=[title, "验收标准"]),
+            Question(id=f"{prefix}-05", course_id=COURSE_ID, lesson_id=lesson_id, type="true_false", stem=f"「{title}」可以脱离农宝项目5的真实代码，随便用一个图书管理系统示例替代。", options=TF_OPTIONS, answer="B", explanation="题目必须贴合农宝项目或 SpringBoot 课程，不能换成无关系统。", difficulty="easy", tags=[title, "项目一致性"]),
+            Question(id=f"{prefix}-06", course_id=COURSE_ID, lesson_id=lesson_id, type="true_false", stem=f"如果「{title}」涉及发布/上下架状态，接口应明确区分待发布、已发布和删除等状态语义。", options=TF_OPTIONS, answer="A", explanation="状态字段是后台管理系统的重要业务语义，取消发布不等于删除，删除也应考虑软删除和历史记录。", difficulty="medium", tags=[title, "状态管理"]),
+            Question(id=f"{prefix}-07", course_id=COURSE_ID, lesson_id=lesson_id, type="short_answer", stem=f"请结合「{title}」说明：你会从哪些文件、表结构或接口中寻找证据来支撑答案？", answer=f"应从项目5源码、README、数据库 SQL、接口实现类、Vue 页面和 request.ts 中找证据，并围绕 {focus} 说明答案。", explanation="简答题重点看证据来源是否真实、是否能把源码/数据库/前端联调串起来。", difficulty="medium", tags=[title, "证据定位"]),
+            Question(id=f"{prefix}-08", course_id=COURSE_ID, lesson_id=lesson_id, type="short_answer", stem=f"请用三层架构解释「{title}」中 Controller、Service、Mapper 或前端页面各自应承担什么职责。", answer="Controller 处理请求参数和统一响应；Service 组织业务规则和状态变更；Mapper/Mapper XML 负责数据库访问；Vue 页面负责表单、表格、分页和调用封装后的接口。", explanation="该题考查分层职责，答案要避免把 SQL、业务规则和页面交互全部混在一起。", difficulty="medium", tags=[title, "三层架构"]),
+            Question(id=f"{prefix}-09", course_id=COURSE_ID, lesson_id=lesson_id, type="code_fill", stem=f"补全「{title}」常见后端分页查询代码：\n\nPage<?> page = new Page<>(pageQuery.getPageNum(), pageQuery.getPageSize());\nLambdaQueryWrapper<?> wrapper = new LambdaQueryWrapper<>();\nwrapper.eq(status != null, Entity::getStatus, status);\nreturn ______(page, wrapper);", answer="service.page", explanation="MyBatis-Plus 常用 service.page(page, wrapper) 或 mapper.selectPage(page, wrapper) 完成分页条件查询。", difficulty="medium", tags=[title, "MyBatis-Plus"]),
+            Question(id=f"{prefix}-10", course_id=COURSE_ID, lesson_id=lesson_id, type="code_fill", stem=f"补全「{title}」前端请求头设置：\n\nrequest.interceptors.request.use((config) => {{\n  const token = localStorage.getItem('token')\n  if (token) config.headers.______ = `Bearer ${{token}}`\n  return config\n}})", answer="Authorization", explanation="前端统一请求封装中通过 Authorization 请求头携带登录令牌，后端再做鉴权和 RBAC 判断。", difficulty="easy", tags=[title, "Vue", "Axios"]),
+        ])
+    return questions
+
+
+NONGBO_TASK_QUESTIONS = make_nongbo_task_questions()
+
+
 NONGBO_SEED_QUESTIONS: list[Question] = (
-    T1_REQUIREMENT + T2_DATABASE + T3_ENTITY + T4_MVC + T5_TEST + CODE_EXERCISES
+    T1_REQUIREMENT + T2_DATABASE + T3_ENTITY + T4_MVC + T5_TEST + CODE_EXERCISES + NONGBO_TASK_QUESTIONS
 )
 
 

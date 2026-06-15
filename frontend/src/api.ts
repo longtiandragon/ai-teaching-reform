@@ -1,5 +1,16 @@
 import axios from 'axios'
 
+const TOKEN_KEY = 'web-training-access-token'
+
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) {
+    config.headers = config.headers || {}
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
 export interface Citation {
   title: string
   source: string
@@ -40,6 +51,7 @@ export interface UserInfo {
   class_id?: string | null
   class_name?: string | null
   student_no?: string | null
+  username?: string | null
 }
 
 export interface LearningRecord {
@@ -48,6 +60,7 @@ export interface LearningRecord {
   class_id?: string | null
   course_id: string
   lesson_id: string
+  lesson_title?: string | null
   kind: string
   score?: number | null
   correct?: number | null
@@ -204,8 +217,8 @@ export const api = {
   async sessionBootstrap(): Promise<{ classes: ClassInfo[]; users: UserInfo[] }> {
     return (await axios.get('/api/session/bootstrap')).data
   },
-  async login(user_id: string): Promise<UserInfo> {
-    return (await axios.post('/api/session/login', { user_id })).data
+  async login(account: string, password: string): Promise<{ user: UserInfo; access_token: string; token_type: string }> {
+    return (await axios.post('/api/session/login', { account, password })).data
   },
   async lesson(courseId: string, lessonId: string): Promise<Lesson> {
     return (await axios.get(`/api/courses/${courseId}/lessons/${lessonId}`)).data.lesson
@@ -233,6 +246,17 @@ export const api = {
     chatHistory?: Record<string, unknown>[]
   }): Promise<AICheckResult> {
     return (await axios.post('/api/ai/check', payload)).data
+  },
+  async recordLocalCheck(payload: {
+    courseLineId: string
+    moduleId: string
+    taskId: string
+    studentId: string
+    artifactType?: string
+    studentInput: string
+    result: AICheckResult
+  }): Promise<{ ok: boolean }> {
+    return (await axios.post('/api/ai/local-check-record', payload)).data
   },
   async aiTaskChat(payload: {
     courseLineId: string
@@ -345,6 +369,9 @@ export const api = {
   async deleteQuestion(id: string): Promise<{ deleted: string }> {
     return (await axios.delete(`/api/questions/${id}`)).data
   },
+  async generateQuestionExplanation(id: string): Promise<Question> {
+    return (await axios.post(`/api/questions/${id}/generate-explanation`)).data
+  },
 
   // ---------- 发布题目到关卡 ----------
   async publishQuestion(questionId: string, taskId: string, courseLineId: string, publishedBy: string): Promise<{ id: number; ok: boolean }> {
@@ -361,10 +388,6 @@ export const api = {
 
   async publishedByCourse(courseLineId: string): Promise<{ tasks: Array<{ taskId: string; questions: Question[] }> }> {
     return (await axios.get(`/api/published-questions/course/${courseLineId}`)).data
-  },
-
-  async questionPublishedTasks(questionId: string): Promise<{ tasks: Array<{ task_id: string; course_line_id: string }> }> {
-    return (await axios.get(`/api/questions/${questionId}/published-tasks`)).data
   },
 
   // ---------- 引导模式 ----------

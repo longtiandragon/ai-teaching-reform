@@ -432,10 +432,11 @@ def _build_nongbo_lessons() -> list[LessonDetail]:
 def _project_lesson(module: dict) -> LessonDetail:
     files = [path for path in module["files"] if path.exists()]
     docs = [path for path in module.get("docs", []) if path.exists()]
+    rag_docs = [path for path in docs if path.resolve() != COURSE_STANDARD_DOC.resolve()]
     code_path = files[0] if files else None
     code = _read_text(code_path) if code_path else ""
-    doc_excerpt = "\n\n".join(_plain_excerpt(_read_knowledge_text(path), 600) for path in docs)
-    source_list = "\n".join(f"- {_rel(path)}" for path in [*files, *docs])
+    doc_excerpt = "\n\n".join(_plain_excerpt(_read_knowledge_text(path), 600) for path in rag_docs)
+    source_list = "\n".join(f"- {_rel(path)}" for path in [*files, *rag_docs])
     template = _project_template(code, code_path)
     standard_unit = module.get("standard_unit", "")
     objectives = module.get("objectives") or [

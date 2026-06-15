@@ -46,14 +46,28 @@ class GuidedAgentState(TypedDict, total=False):
     citations: list[Citation]
     conversation: list[dict[str, Any]]
     status: str
-    held: bool
 
 
 ANSWER_REQUEST_PATTERN = re.compile(
     r"完整|直接.*答案|直接.*代码|生成.*完整|帮我写完|给我答案|给出答案|full answer|complete code",
     re.I,
 )
-STAY_ON_STEP_INTENTS = {"ask_concept", "need_hint", "request_answer"}
+STAY_ON_STEP_INTENTS = {"ask_concept", "need_hint"}
+
+
+def _merge_citations(*groups: list[Citation], limit: int = 5) -> list[Citation]:
+    seen = set()
+    merged: list[Citation] = []
+    for group in groups:
+        for citation in group:
+            key = (citation.kind, citation.source, citation.title, citation.snippet[:80])
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(citation)
+            if len(merged) >= limit:
+                return merged
+    return merged
 
 
 def classify_intent(state: GuidedAgentState) -> GuidedAgentState:
@@ -82,6 +96,7 @@ def plan_steps(state: GuidedAgentState) -> GuidedAgentState:
     stem = question.get("stem") or state.get("student_input", "")
     task_type = str(task.get("type") or "").lower()
     artifact = str(task.get("requiredArtifactType") or "")
+    is_code_task = "code" in artifact or "coding" in task_type or question.get("type") == "code_fill"
     title = str(task.get("title") or "当前任务")
 
     steps: list[TeachingStep] = [
@@ -97,7 +112,7 @@ def plan_steps(state: GuidedAgentState) -> GuidedAgentState:
         },
     ]
 
-    if "code" in artifact or "coding" in task_type or question.get("type") == "code_fill":
+    if is_code_task:
         steps.append(
             {
                 "title": "补全关键代码片段",
@@ -130,7 +145,30 @@ def plan_steps(state: GuidedAgentState) -> GuidedAgentState:
             "knowledge_points": ["Rubric", "自检", "迭代修改"],
         }
     )
-    state["steps"] = steps[:5]
+    if is_code_task:
+        steps = steps[:2] + [
+            {
+                "title": "代码结构定位",
+                "goal": "先确认这道编程题需要产出的文件、代码块边界和依赖资料，不直接一次性写完整答案。",
+                "knowledge_points": ["题目边界", "代码结构", "资料引用"],
+            },
+            {
+                "title": "输出第一段核心代码",
+                "goal": "只给当前最小可理解代码片段，并逐行解释每一行的作用。",
+                "knowledge_points": ["核心语法", "逐行解析", "局部实现"],
+            },
+            {
+                "title": "补全第二段关键代码",
+                "goal": "在学生确认已理解后，继续输出下一段代码，说明它和上一段如何衔接。",
+                "knowledge_points": ["代码衔接", "边界条件", "知识迁移"],
+            },
+            {
+                "title": "检查完整性与提交要求",
+                "goal": "最后核对题目要求、语法完整性和验收标准，再让学生整理右侧最终答案。",
+                "knowledge_points": ["自检清单", "语法完整性", "提交验收"],
+            },
+        ]
+    state["steps"] = steps[:6]
     state["current_step"] = 0
     state["status"] = "teaching"
     return state
@@ -153,6 +191,12 @@ async def retrieve_step_context(state: GuidedAgentState) -> GuidedAgentState:
         ]
         if part
     )
+    structured_citations = rag_service.structured_object_citations(
+        query,
+        course_id=state.get("course_line_id"),
+        task_id=state.get("task_id"),
+        limit=3,
+    )
     citations = rag_service.search(
         query,
         limit=5,
@@ -160,6 +204,7 @@ async def retrieve_step_context(state: GuidedAgentState) -> GuidedAgentState:
         course_id=state.get("course_line_id"),
         task_id=state.get("task_id"),
     )
+    citations = _merge_citations(structured_citations, citations, limit=5)
     if state.get("intent") == "ask_concept":
         try:
             web_citations = await web_search_service.search(state.get("student_input", query), limit=2)
@@ -255,7 +300,6 @@ def _build_teaching_prompt(state: GuidedAgentState) -> str:
 
 {answer_guard}
 {concept_guard}
-{hold_guard}
 {question_guard}
 
 当前任务：
@@ -401,20 +445,14 @@ async def continue_guided_session(
         "status": "teaching",
     }
     state = classify_intent(state)
-    hold_reason = _hold_step_reason(state)
-    should_stay = state.get("intent") in STAY_ON_STEP_INTENTS or bool(hold_reason)
+    should_stay = state.get("intent") in STAY_ON_STEP_INTENTS
 
     if should_stay or current_step < len(steps) - 1:
-        if hold_reason:
-            _append_hold_message(state, hold_reason)
-        elif not should_stay:
+        if not should_stay:
             current_step += 1
             state["current_step"] = current_step
-            state = await retrieve_step_context(state)
-            state = await generate_teaching_step(state)
-        else:
-            state = await retrieve_step_context(state)
-            state = await generate_teaching_step(state)
+        state = await retrieve_step_context(state)
+        state = await generate_teaching_step(state)
         status: Literal["waiting", "completed"] = "waiting"
         conversation = state["conversation"]
     else:
@@ -476,14 +514,9 @@ async def prepare_guided_continue(
         "status": "teaching",
     }
     state = classify_intent(state)
-    hold_reason = _hold_step_reason(state)
-    should_stay = state.get("intent") in STAY_ON_STEP_INTENTS or bool(hold_reason)
+    should_stay = state.get("intent") in STAY_ON_STEP_INTENTS
 
     if should_stay or current_step < len(steps) - 1:
-        if hold_reason:
-            _append_hold_message(state, hold_reason)
-            state["citations"] = []
-            return state, "waiting"
         if not should_stay:
             current_step += 1
             state["current_step"] = current_step

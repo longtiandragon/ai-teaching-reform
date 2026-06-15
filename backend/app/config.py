@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     web_search_api_key: str = Field(default="", alias="WEB_SEARCH_API_KEY")
     web_search_top_k: int = Field(default=3, alias="WEB_SEARCH_TOP_K")
     web_search_timeout_seconds: float = Field(default=8, alias="WEB_SEARCH_TIMEOUT_SECONDS")
+    jwt_secret_key: str = Field(
+        default="dev-local-jwt-secret-change-me-9b4d6fce9f4d4fb78d96b73d3f8e9a12",
+        alias="JWT_SECRET_KEY",
+    )
+    jwt_expire_minutes: int = Field(default=60 * 24 * 30, alias="JWT_EXPIRE_MINUTES")
 
     @property
     def db_path(self) -> Path:

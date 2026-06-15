@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+﻿from fastapi.testclient import TestClient
 from uuid import uuid4
 
 from backend.app.data.courses import NONGBO_COURSE_ID, SPRINGBOOT_COURSE_ID
@@ -120,7 +120,7 @@ def test_practice_feedback_fails_without_live_deepseek_instead_of_fake_score() -
 
 
 def test_learning_map_exposes_product_tasks() -> None:
-    response = client.get(f"/api/course-lines/{NONGBO_COURSE_ID}/learning-map?student_id=stu-240101")
+    response = client.get(f"/api/course-lines/{NONGBO_COURSE_ID}/learning-map?student_id=stu-001")
     assert response.status_code == 200
     data = response.json()
     assert data["courseLineId"] == NONGBO_COURSE_ID
@@ -146,7 +146,7 @@ def test_ai_check_fails_without_live_deepseek_after_real_rag() -> None:
             "courseLineId": NONGBO_COURSE_ID,
             "moduleId": "nongbo-m1-requirements",
             "taskId": "task-requirement-understanding",
-            "studentId": "stu-240101",
+            "studentId": "stu-001",
             "artifactType": "text",
             "studentInput": "农科讲堂需要课程列表、课程详情、搜索、推荐课程、专家关联和在线学习。",
             "attachments": [],
@@ -183,7 +183,7 @@ def _publish_to_project5(question_id: str) -> None:
             "questionId": question_id,
             "taskId": "task-frontend-integration",
             "courseLineId": NONGBO_COURSE_ID,
-            "publishedBy": "teacher-001",
+            "publishedBy": "teacher-20240036",
         },
     )
     assert response.status_code == 200
@@ -271,7 +271,7 @@ def test_guided_start_and_message_use_uploaded_material_without_full_answer(monk
             "courseLineId": NONGBO_COURSE_ID,
             "moduleId": "nongbo-m5-fullstack",
             "taskId": "task-frontend-integration",
-            "studentId": "stu-240101",
+            "studentId": "stu-001",
             "studentInput": "帮我生成完整答案",
             "questionId": question["id"],
             "codeDraft": "",
@@ -291,7 +291,7 @@ def test_guided_start_and_message_use_uploaded_material_without_full_answer(monk
         "/api/guided/message",
         json={
             "sessionId": data["sessionId"],
-            "studentId": "stu-240101",
+            "studentId": "stu-001",
             "message": "我先写 request.ts 的拦截器。",
             "codeDraft": "const service = axios.create({ baseURL: '/api' })",
         },
@@ -331,7 +331,7 @@ def test_guided_concept_question_stays_on_current_step_and_answers_directly(monk
             "courseLineId": NONGBO_COURSE_ID,
             "moduleId": "nongbo-m5-fullstack",
             "taskId": "task-frontend-integration",
-            "studentId": "stu-240101",
+            "studentId": "stu-001",
             "studentInput": "请引导我做题",
             "questionId": question["id"],
         },
@@ -343,7 +343,7 @@ def test_guided_concept_question_stays_on_current_step_and_answers_directly(monk
         "/api/guided/message",
         json={
             "sessionId": session_id,
-            "studentId": "stu-240101",
+            "studentId": "stu-001",
             "message": "什么是数据库",
         },
     )
@@ -368,7 +368,7 @@ def test_guided_start_fails_when_no_local_material_and_web_search_disabled(monke
             "courseLineId": NONGBO_COURSE_ID,
             "moduleId": "nongbo-m5-fullstack",
             "taskId": "task-frontend-integration",
-            "studentId": "stu-240101",
+            "studentId": "stu-001",
             "studentInput": "请引导我做题",
         },
     )
@@ -403,7 +403,7 @@ def test_guided_start_uses_web_search_citation_when_local_material_is_missing(mo
             "courseLineId": NONGBO_COURSE_ID,
             "moduleId": "nongbo-m5-fullstack",
             "taskId": "task-frontend-integration",
-            "studentId": "stu-240101",
+            "studentId": "stu-001",
             "studentInput": "请帮我规划这道题",
         },
     )
