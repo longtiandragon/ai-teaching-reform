@@ -176,6 +176,19 @@ export interface AICheckResult {
   nextTaskUnlocked: boolean
 }
 
+export interface TaskSubmissionSnapshot {
+  id: number
+  studentId: string
+  courseLineId: string
+  moduleId: string
+  taskId: string
+  questionId?: string | null
+  artifactType?: string | null
+  studentInput: string
+  createdAt: string
+  result: AICheckResult
+}
+
 // ---------- 题库 ----------
 export interface QuestionOption {
   key: string       // "A" / "B" / "C" / "D"
@@ -235,6 +248,15 @@ export const api = {
   async learningTask(taskId: string): Promise<LearningTaskDetail> {
     return (await axios.get(`/api/tasks/${taskId}`)).data
   },
+  async latestTaskSubmission(taskId: string, studentId: string, questionId?: string): Promise<{ submission: TaskSubmissionSnapshot | null }> {
+    const params = new URLSearchParams({ student_id: studentId })
+    if (questionId) params.set('question_id', questionId)
+    return (await axios.get(`/api/tasks/${taskId}/latest-submission?${params.toString()}`)).data
+  },
+  async latestQuestionSubmissions(courseLineId: string, studentId: string): Promise<{ submissions: TaskSubmissionSnapshot[] }> {
+    const params = new URLSearchParams({ student_id: studentId })
+    return (await axios.get(`/api/course-lines/${courseLineId}/latest-question-submissions?${params.toString()}`)).data
+  },
   async aiCheck(payload: {
     courseLineId: string
     moduleId: string
@@ -242,6 +264,7 @@ export const api = {
     studentId: string
     artifactType?: string
     studentInput: string
+    questionId?: string
     attachments?: Record<string, unknown>[]
     chatHistory?: Record<string, unknown>[]
   }): Promise<AICheckResult> {
@@ -254,6 +277,7 @@ export const api = {
     studentId: string
     artifactType?: string
     studentInput: string
+    questionId?: string
     result: AICheckResult
   }): Promise<{ ok: boolean }> {
     return (await axios.post('/api/ai/local-check-record', payload)).data

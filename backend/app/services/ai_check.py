@@ -82,6 +82,7 @@ async def check_learning_task(request: AICheckRequest) -> AICheckResponse:
         reply=response.reply,
         rubric_scores=rubric_scores_payload,
         evidence=[citation.model_dump() for citation in citations],
+        question_id=request.questionId,
         next_task_id=next_id,
     )
     await asyncio.to_thread(

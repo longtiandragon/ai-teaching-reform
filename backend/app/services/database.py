@@ -167,6 +167,7 @@ def init_db() -> None:
             )
             """
         )
+        _ensure_column(conn, "task_submissions", "question_id", "TEXT")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS guided_sessions (
@@ -705,6 +706,63 @@ def latest_submission_rows(limit: int = 200) -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def latest_task_submission(
+    *,
+    student_id: str,
+    task_id: str,
+    question_id: str | None = None,
+) -> sqlite3.Row | None:
+    query = """
+        SELECT *
+        FROM task_submissions
+        WHERE student_id = ? AND task_id = ?
+    """
+    params: list[str] = [student_id, task_id]
+    if question_id:
+        query += " AND question_id = ?"
+        params.append(question_id)
+    query += " ORDER BY created_at DESC, id DESC LIMIT 1"
+    with get_conn() as conn:
+        return conn.execute(query, params).fetchone()
+
+
+def latest_question_submissions(student_id: str, course_line_id: str) -> list[sqlite3.Row]:
+    with get_conn() as conn:
+        return conn.execute(
+            """
+            SELECT ts.*
+            FROM task_submissions ts
+            INNER JOIN (
+                SELECT question_id, MAX(id) AS latest_id
+                FROM task_submissions
+                WHERE student_id = ?
+                  AND course_line_id = ?
+                  AND question_id IS NOT NULL
+                GROUP BY question_id
+            ) latest ON latest.latest_id = ts.id
+            ORDER BY ts.created_at DESC, ts.id DESC
+            """,
+            (student_id, course_line_id),
+        ).fetchall()
+
+
+def latest_submission_for_error(student_id: str, task_id: str | None, student_answer: str) -> sqlite3.Row | None:
+    query = """
+        SELECT *
+        FROM task_submissions
+        WHERE student_id = ?
+          AND student_input = ?
+          AND question_id IS NOT NULL
+    """
+    params: list[str] = [student_id, student_answer]
+    if task_id:
+        query += " AND task_id = ?"
+        params.append(task_id)
+    query += " ORDER BY created_at DESC, id DESC LIMIT 1"
+    with get_conn() as conn:
+        return conn.execute(query, params).fetchone()
+
+
 def record_task_submission(
     *,
     student_id: str,
@@ -719,6 +777,7 @@ def record_task_submission(
     reply: str,
     rubric_scores: list[dict],
     evidence: list[dict],
+    question_id: str | None = None,
     next_task_id: str | None = None,
 ) -> None:
     now = datetime.now(UTC).isoformat()
@@ -728,9 +787,9 @@ def record_task_submission(
             """
             INSERT INTO task_submissions(
                 student_id, course_line_id, module_id, task_id, artifact_type, student_input, score,
-                passed, level, reply, rubric_scores_json, evidence_json, created_at
+                passed, level, reply, rubric_scores_json, evidence_json, created_at, question_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 student_id,
@@ -746,6 +805,7 @@ def record_task_submission(
                 json.dumps(rubric_scores, ensure_ascii=False),
                 json.dumps(evidence, ensure_ascii=False),
                 now,
+                question_id,
             ),
         )
         conn.execute(

@@ -14,6 +14,7 @@ from backend.app.models import (
     ChatResponse,
     AIChatTaskRequest,
     AICheckRequest,
+    AICheckProblem,
     AICheckResponse,
     AgentSkillRunRequest,
     AgentSkillRunResponse,
@@ -60,6 +61,8 @@ from backend.app.services.database import (
     get_user_by_login,
     get_user,
     init_db,
+    latest_question_submissions,
+    latest_task_submission,
     list_classes,
     list_users,
     record_interaction,
@@ -214,6 +217,8 @@ async def ai_reflect(request: AIChatTaskRequest) -> ChatResponse:
 @app.post("/api/ai/check", response_model=AICheckResponse)
 async def ai_check(request: AICheckRequest) -> AICheckResponse:
     try:
+        if request.questionId:
+            return await _ai_check_published_question(request)
         return await check_learning_task(request)
     except NoCitationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -222,6 +227,158 @@ async def ai_check(request: AICheckRequest) -> AICheckResponse:
 
 
 # ---------- AI 配置 API ----------
+
+
+async def _ai_check_published_question(request: AICheckRequest) -> AICheckResponse:
+    question = _question_lookup().get(request.questionId or "")
+    if not question:
+        raise HTTPException(status_code=404, detail="question not found")
+    published = await asyncio.to_thread(get_published_questions, request.taskId)
+    if not any(row["question_id"] == request.questionId for row in published):
+        raise HTTPException(status_code=404, detail="question is not published to this task")
+
+    citations = await asyncio.to_thread(
+        rag_service.search,
+        " ".join([question.stem, question.answer, question.explanation or "", request.studentInput[:600]]),
+        5,
+        None,
+        request.courseLineId,
+        request.taskId,
+    )
+    prompt = _question_check_prompt(question.model_dump(), request.studentInput, [citation.model_dump() for citation in citations])
+    content = await deepseek_client.direct_answer(prompt, max_tokens=1600)
+    payload = _extract_json_object(content)
+    score = max(0, min(100, _safe_int(payload.get("score"), 0)))
+    passed = bool(payload.get("passed", score >= 80))
+    response = AICheckResponse(
+        passed=passed,
+        score=score,
+        level="passed" if passed else "needs_revision",
+        reply=str(payload.get("reply") or content),
+        strengths=[str(item) for item in payload.get("strengths", []) if str(item).strip()],
+        problems=[
+            AICheckProblem(
+                type=str(item.get("type") or "answer_issue"),
+                message=str(item.get("message") or ""),
+                suggestion=str(item.get("suggestion") or ""),
+            )
+            for item in payload.get("problems", [])
+            if isinstance(item, dict)
+        ],
+        nextActions=[str(item) for item in payload.get("nextActions", []) if str(item).strip()],
+        evidence=citations,
+        rubricScores=[],
+        nextTaskUnlocked=False,
+    )
+    await asyncio.to_thread(
+        record_task_submission,
+        student_id=request.studentId,
+        course_line_id=request.courseLineId,
+        module_id=request.moduleId,
+        task_id=request.taskId,
+        artifact_type=request.artifactType,
+        student_input=request.studentInput,
+        score=response.score,
+        passed=response.passed,
+        level=response.level,
+        reply=response.reply,
+        rubric_scores=[],
+        evidence=[citation.model_dump() for citation in citations],
+        question_id=request.questionId,
+        next_task_id=None,
+    )
+    await asyncio.to_thread(
+        record_interaction,
+        kind="question_ai_check",
+        course_id=request.courseLineId,
+        lesson_id=request.taskId,
+        question=question.stem,
+        answer=response.reply,
+        score=response.score,
+        student_id=request.studentId,
+    )
+    await asyncio.to_thread(
+        record_learning_event,
+        student_id=request.studentId,
+        course_id=request.courseLineId,
+        lesson_id=request.taskId,
+        kind="question_ai_check",
+        score=response.score,
+        code=request.studentInput,
+        feedback=response.reply,
+        answers=[{"questionId": request.questionId, "type": question.type, "answer": request.studentInput}],
+    )
+    if response.score < 70 or not response.passed:
+        await asyncio.to_thread(
+            add_error_entry,
+            student_id=request.studentId,
+            source_type="question_ai_check",
+            source_id=request.questionId,
+            course_line_id=request.courseLineId,
+            task_id=request.taskId,
+            question=question.stem[:500],
+            student_answer=request.studentInput[:500],
+            correct_answer=question.answer[:500],
+            error_analysis=response.reply[:300] if response.reply else "",
+            knowledge_points=", ".join((question.tags or [])[:5]),
+            difficulty=question.difficulty,
+        )
+    return response
+
+
+def _question_check_prompt(question: dict, student_input: str, citations: list[dict]) -> str:
+    return f"""你是 SpringBoot 与农宝项目课程的严谨助教。请只根据题目、标准答案、教师解析和引用资料，对学生提交进行判分。
+
+判分规则：
+1. 这是发布题目的主观/解析型判分，不要使用关卡任务 rubric。
+2. 标准答案是主要依据；教师解析只用于理解评分点和生成反馈，不要求学生逐字复述解析。
+3. 如果学生表达与标准答案等价、覆盖核心含义，可以判通过。
+4. 不要因为措辞不同扣分；要指出缺少的核心点。
+5. 必须返回 JSON，不要 Markdown，不要代码块。
+
+返回格式：
+{{
+  "passed": true,
+  "score": 0,
+  "reply": "给学生看的简短反馈，说明是否通过、原因和解析",
+  "strengths": ["做得好的点"],
+  "problems": [{{"type": "missing_point", "message": "问题", "suggestion": "修改建议"}}],
+  "nextActions": ["下一步建议"]
+}}
+
+题目信息：
+- 题型：{question.get("type")}
+- 题干：{question.get("stem")}
+- 标准答案：{question.get("answer")}
+- 教师解析：{question.get("explanation") or "无"}
+
+学生提交：
+{student_input}
+
+引用资料：
+{json.dumps(citations[:5], ensure_ascii=False)}
+"""
+
+
+def _extract_json_object(content: str) -> dict:
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        start = content.find("{")
+        end = content.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                return json.loads(content[start : end + 1])
+            except json.JSONDecodeError:
+                pass
+    return {
+        "passed": False,
+        "score": 0,
+        "reply": content,
+        "strengths": [],
+        "problems": [{"type": "ai_format", "message": "AI 未返回结构化评分结果", "suggestion": "请稍后重试"}],
+        "nextActions": ["请稍后重试，或联系教师检查 AI 配置。"],
+    }
 
 @app.get("/api/ai/config")
 async def get_ai_config_endpoint() -> dict:
@@ -341,6 +498,31 @@ async def learning_self_check(request: SelfCheckSubmission) -> dict:
 async def student_learning_records(student_id: str, course_id: str | None = None) -> dict[str, list[LearningRecord]]:
     rows = await asyncio.to_thread(student_records, student_id, course_id)
     return {"records": [_learning_record_from_row(row) for row in rows]}
+
+
+@app.get("/api/tasks/{task_id}/latest-submission")
+async def latest_task_submission_endpoint(
+    task_id: str,
+    student_id: str,
+    question_id: str | None = None,
+) -> dict:
+    if not student_id:
+        raise HTTPException(status_code=400, detail="student_id required")
+    row = await asyncio.to_thread(
+        latest_task_submission,
+        student_id=student_id,
+        task_id=task_id,
+        question_id=question_id,
+    )
+    return {"submission": _task_submission_payload(row) if row else None}
+
+
+@app.get("/api/course-lines/{course_line_id}/latest-question-submissions")
+async def latest_question_submissions_endpoint(course_line_id: str, student_id: str) -> dict:
+    if not student_id:
+        raise HTTPException(status_code=400, detail="student_id required")
+    rows = await asyncio.to_thread(latest_question_submissions, student_id, course_line_id)
+    return {"submissions": [_task_submission_payload(row) for row in rows]}
 
 
 @app.post("/api/kb/ingest", response_model=IngestResponse)
@@ -558,6 +740,7 @@ async def local_check_record(payload: dict) -> dict:
         reply=reply,
         rubric_scores=rubric_scores,
         evidence=evidence,
+        question_id=payload.get("questionId"),
         next_task_id=None,
     )
     await asyncio.to_thread(
@@ -592,10 +775,20 @@ async def local_check_record(payload: dict) -> dict:
         knowledge_points = ", ".join(kp_list[:5])
 
         # 提取正确答案（从 rubric 的 answer 字段）
+        question_text = ""
         correct_answer = ""
+        question_id = str(payload.get("questionId") or "")
+        published_question = _question_lookup().get(question_id) if question_id else None
+        if published_question:
+            question_text = published_question.stem
+            correct_answer = published_question.answer
+            if not knowledge_points:
+                knowledge_points = ", ".join((published_question.tags or [])[:5])
         task_detail = await asyncio.to_thread(get_task_detail, str(payload["taskId"]))
-        if task_detail and hasattr(task_detail, "instruction"):
-            correct_answer = task_detail.instruction[:200]
+        if not question_text:
+            question_text = f"{task_detail.title}\n\n{task_detail.instruction}"
+        if not correct_answer and task_detail and hasattr(task_detail, "instruction"):
+            correct_answer = task_detail.instruction[:500]
 
         await asyncio.to_thread(
             add_error_entry,
@@ -604,9 +797,9 @@ async def local_check_record(payload: dict) -> dict:
             source_id=f"check-{payload['taskId']}",
             course_line_id=str(payload["courseLineId"]),
             task_id=str(payload["taskId"]),
-            question=student_input[:500],
+            question=question_text[:500],
             student_answer=student_input[:500],
-            correct_answer=correct_answer,
+            correct_answer=correct_answer[:500],
             error_analysis=reply[:300] if reply else "",
             knowledge_points=knowledge_points,
             difficulty="medium",
@@ -827,6 +1020,7 @@ from backend.app.services.database import (
     add_error_entry,
     get_error_book,
     get_error_entry,
+    latest_submission_for_error,
     update_error_entry,
     delete_error_entry,
     get_error_stats,
@@ -835,7 +1029,31 @@ from backend.app.services.database import (
 @app.get("/api/error-book/{student_id}")
 async def get_error_book_endpoint(student_id: str, status: str | None = None) -> dict:
     entries = await asyncio.to_thread(get_error_book, student_id, status)
+    entries = await asyncio.to_thread(_repair_error_book_questions, entries)
     return {"entries": entries, "total": len(entries)}
+
+
+def _repair_error_book_questions(entries: list[dict]) -> list[dict]:
+    question_lookup = _question_lookup()
+    for entry in entries:
+        question_text = str(entry.get("question") or "").strip()
+        student_answer = str(entry.get("student_answer") or "").strip()
+        if not question_text or not student_answer or question_text != student_answer:
+            continue
+        row = latest_submission_for_error(
+            str(entry.get("student_id") or ""),
+            str(entry.get("task_id") or "") or None,
+            student_answer,
+        )
+        if not row:
+            continue
+        question = question_lookup.get(row["question_id"])
+        if not question:
+            continue
+        entry["question"] = question.stem
+        if not entry.get("correct_answer"):
+            entry["correct_answer"] = question.answer
+    return entries
 
 
 @app.get("/api/error-book/{student_id}/stats")
@@ -1184,6 +1402,43 @@ def _learning_record_from_row(row) -> LearningRecord:
     except json.JSONDecodeError:
         item["answers"] = []
     return LearningRecord(**item)
+
+
+def _task_submission_payload(row) -> dict | None:
+    if not row:
+        return None
+    item = dict(row)
+    try:
+        rubric_scores = json.loads(item.get("rubric_scores_json") or "[]")
+    except json.JSONDecodeError:
+        rubric_scores = []
+    try:
+        evidence = json.loads(item.get("evidence_json") or "[]")
+    except json.JSONDecodeError:
+        evidence = []
+    return {
+        "id": item["id"],
+        "studentId": item["student_id"],
+        "courseLineId": item["course_line_id"],
+        "moduleId": item["module_id"],
+        "taskId": item["task_id"],
+        "questionId": item.get("question_id"),
+        "artifactType": item.get("artifact_type"),
+        "studentInput": item["student_input"],
+        "createdAt": item["created_at"],
+        "result": {
+            "passed": bool(item["passed"]),
+            "score": int(item["score"]),
+            "level": item["level"],
+            "reply": item["reply"],
+            "strengths": [],
+            "problems": [],
+            "nextActions": [],
+            "evidence": evidence,
+            "rubricScores": rubric_scores,
+            "nextTaskUnlocked": False,
+        },
+    }
 
 
 def _safe_int(value, fallback: int = 0) -> int:

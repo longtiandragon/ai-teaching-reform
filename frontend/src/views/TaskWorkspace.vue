@@ -93,7 +93,7 @@
               @click="startQuestionGuidance"
             >
               <Bot :size="16" />
-              <span>开始智能体引导</span>
+              <span>开始 AI 分步讲解</span>
             </button>
           </div>
 
@@ -112,6 +112,7 @@
               </span>
             </div>
             <p v-if="currentStepGoal">{{ currentStepGoal }}</p>
+            <p class="stepper-tip">可以点击“已理解，下一步”，也可以在对话框输入“下一步”或“继续”。</p>
           </div>
 
           <div v-if="guidedCitations.length" class="citation-strip" aria-label="参考资料">
@@ -176,7 +177,7 @@
               id="student-question"
               v-model="userInput"
               rows="2"
-              placeholder="输入你的问题或当前思路"
+              placeholder="输入你的问题、当前思路，或输入“下一步/继续”推进"
               aria-label="向智能体提问"
               @keydown.enter.ctrl.prevent="sendMessage"
             ></textarea>
@@ -229,6 +230,14 @@
           <div v-if="activeQuestion && isObjectiveQuestion(activeQuestion)" class="selected-answer-summary">
             <strong>已选答案</strong>
             <span>{{ selectedAnswerKeys.length ? selectedAnswerKeys.join('、') : '请先选择答案' }}</span>
+          </div>
+
+          <div v-if="activeQuestion?.type === 'code_fill'" class="code-fill-preview">
+            <div class="code-fill-preview-title">
+              <FileText :size="15" />
+              <strong>填空预览</strong>
+            </div>
+            <pre>{{ codeFillPreview(activeQuestion) }}</pre>
           </div>
 
           <div v-if="!activeQuestion || !isObjectiveQuestion(activeQuestion)" class="editor-shell">
@@ -294,10 +303,19 @@
           </div>
         </div>
 
-        <div v-if="activeQuestion && checkResult.passed" class="result-actions">
-          <button type="button" class="icon-action primary" @click="goNextQuestionOrRoadmap">
-            <CheckCircle2 :size="16" />
-            <span>{{ nextQuestion ? '进入下一题' : '返回关卡路线' }}</span>
+        <div v-if="activeQuestion && (previousQuestion || checkResult?.passed)" class="question-nav-actions">
+          <button
+            v-if="previousQuestion"
+            type="button"
+            class="icon-action secondary"
+            @click="goPreviousQuestion"
+          >
+            <ArrowLeft :size="16" />
+            <span>上一题</span>
+          </button>
+          <button v-if="checkResult?.passed" type="button" class="icon-action primary" @click="goNextQuestionOrRoadmap">
+            <ArrowRight :size="16" />
+            <span>{{ nextStepLabel }}</span>
           </button>
         </div>
       </section>
@@ -315,6 +333,8 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
   Bot,
   CheckCircle2,
   Code2,
@@ -324,7 +344,7 @@ import {
   Send,
   X,
 } from 'lucide-vue-next'
-import { api, type AICheckResult, type Citation, type LearningTaskDetail, type Question } from '../api'
+import { api, type AICheckResult, type Citation, type LearningTaskDetail, type Question, type TaskSubmissionSnapshot } from '../api'
 import { useSessionStore } from '../stores/session'
 
 type ChatRole = 'assistant' | 'student' | 'system'
@@ -400,12 +420,14 @@ const showUnderstoodAction = computed(() =>
   Boolean(
     task.value &&
       messages.value.length &&
-      (guidedSessionId.value || activeQuestion.value) &&
-      guidedStatus.value !== 'completed',
+      !guidedLoading.value &&
+      activeQuestion.value &&
+      (guidedSessionId.value || activeQuestion.value.type === 'short_answer') &&
+      (!guidedSessionId.value || guidedStatus.value !== 'completed'),
   ),
 )
 const showStartGuidedAction = computed(() =>
-  Boolean(false),
+  Boolean(activeQuestion.value && activeQuestion.value.type !== 'short_answer' && !guidedSessionId.value && !guidedLoading.value),
 )
 const showGuidedThinking = computed(() => guidedLoading.value && !streamingAssistantVisible.value)
 const selectedOptionKeys = computed(() => {
@@ -425,6 +447,15 @@ const nextQuestion = computed(() => {
   const index = taskQuestions.value.findIndex((item) => item.id === activeQuestion.value?.id)
   return index >= 0 ? taskQuestions.value[index + 1] || null : null
 })
+const previousQuestion = computed(() => {
+  if (!activeQuestion.value) return null
+  const index = taskQuestions.value.findIndex((item) => item.id === activeQuestion.value?.id)
+  return index > 0 ? taskQuestions.value[index - 1] || null : null
+})
+const nextStepLabel = computed(() => {
+  if (nextQuestion.value) return '进入下一题'
+  return '进入下一关'
+})
 
 onMounted(async () => {
   const taskId = route.params.taskId as string | undefined
@@ -440,6 +471,9 @@ onMounted(async () => {
     if (questionId) {
       await loadActiveQuestion(taskId, questionId)
       showQuestionIntro()
+      await loadLatestSubmission(taskId, questionId)
+    } else {
+      await loadLatestSubmission(taskId)
     }
   } catch (error: any) {
     loadError.value = errorMessage(error)
@@ -474,6 +508,30 @@ async function loadRecordSnapshot() {
       nextTaskUnlocked: false,
     }
   }
+}
+
+async function loadLatestSubmission(taskId: string, questionId?: string) {
+  if (!studentId.value || route.query.recordId) return
+  const res = await api.latestTaskSubmission(taskId, studentId.value, questionId)
+  if (!res.submission) return
+  applySubmissionSnapshot(res.submission)
+}
+
+function applySubmissionSnapshot(submission: TaskSubmissionSnapshot) {
+  checkResult.value = submission.result
+  if (activeQuestion.value && isObjectiveQuestion(activeQuestion.value)) {
+    selectedAnswerKeys.value = normalizeAnswer(submission.studentInput, activeQuestion.value.type).split('').filter(Boolean)
+  } else {
+    codeInput.value = submission.studentInput
+  }
+  messages.value.push({
+    role: 'system',
+    content: `已恢复最近一次提交：${submission.result.passed ? '已通过' : '未通过'}，${submission.result.score} 分。`,
+  })
+  messages.value.push({
+    role: 'assistant',
+    content: `## 最近一次验收评析\n${submission.result.reply}`,
+  })
 }
 
 function firstQueryValue(value: unknown): string | undefined {
@@ -753,6 +811,22 @@ async function submitCheck() {
   try {
     if (activeQuestion.value) {
       const submittedInput = submissionInput.value
+      if (shouldUseAiQuestionCheck(activeQuestion.value)) {
+        checkResult.value = await api.aiCheck({
+          courseLineId: task.value.course_line_id,
+          moduleId: task.value.module_id,
+          taskId: task.value.id,
+          studentId: studentId.value,
+          artifactType: task.value.required_artifact_type,
+          studentInput: submittedInput,
+          questionId: activeQuestion.value.id,
+          chatHistory: messages.value,
+        })
+        messages.value.push({ role: 'student', content: `提交答案：\n\n${formatSubmittedAnswer(activeQuestion.value, submittedInput)}` })
+        messages.value.push({ role: 'assistant', content: checkResult.value.reply })
+        await scrollToBottom()
+        return
+      }
       const localResult = checkPublishedQuestion(activeQuestion.value, submittedInput)
       checkResult.value = localResult
       messages.value.push({ role: 'student', content: `提交答案：\n\n${formatSubmittedAnswer(activeQuestion.value, submittedInput)}` })
@@ -764,6 +838,7 @@ async function submitCheck() {
         studentId: studentId.value,
         artifactType: task.value.required_artifact_type,
         studentInput: submittedInput,
+        questionId: activeQuestion.value.id,
         result: localResult,
       })
       await scrollToBottom()
@@ -1367,6 +1442,24 @@ function isObjectiveQuestion(question: Question): boolean {
   return ['single_choice', 'multi_choice', 'true_false'].includes(question.type)
 }
 
+function shouldUseAiQuestionCheck(question: Question): boolean {
+  return ['short_answer', 'code_fill'].includes(question.type)
+}
+
+function codeFillPreview(question: Question): string {
+  const underline = '__________'
+  return question.stem
+    .replace(/```[\w-]*\n?/g, '')
+    .replace(/```/g, '')
+    .replace(/<!--\s*TODO[\s\S]*?-->/gi, underline)
+    .replace(/\/\*\s*TODO[\s\S]*?\*\//gi, underline)
+    .replace(/\/\/\s*TODO[^\n]*/gi, underline)
+    .replace(/#\s*TODO[^\n]*/gi, underline)
+    .replace(/TODO[:：]?[^\n]*/gi, underline)
+    .replace(/_{3,}/g, underline)
+    .trim()
+}
+
 function formatSubmittedAnswer(question: Question, value: string): string {
   if (!isObjectiveQuestion(question)) return value
   const optionText = questionOptions(question)
@@ -1435,24 +1528,46 @@ function prepareLocalGuidedSteps(question: Question) {
 async function goNextQuestionOrRoadmap() {
   if (!task.value) return
   if (nextQuestion.value) {
-    const q = nextQuestion.value
-    checkResult.value = null
-    activeQuestion.value = q
-    guidedSessionId.value = ''
-    guidedIntent.value = ''
-    guidedStatus.value = ''
-    guidedSteps.value = []
-    guidedCurrentStep.value = 0
-    guidedTotalSteps.value = 0
-    guidedCitations.value = []
-    resetAnswerForQuestion(q)
-    prepareLocalGuidedSteps(q)
-    showQuestionIntro()
-    await router.replace({ name: 'task-workspace', params: { taskId: task.value.id }, query: { questionId: q.id } })
-    await scrollToBottom()
+    await switchActiveQuestion(nextQuestion.value)
+    return
+  }
+  const nextTaskId = await resolveNextTaskId()
+  if (nextTaskId) {
+    await router.push({ name: 'task-workspace', params: { taskId: nextTaskId } })
     return
   }
   await router.push({ path: '/student', query: { course: task.value.course_line_id } })
+}
+
+async function goPreviousQuestion() {
+  if (!previousQuestion.value) return
+  await switchActiveQuestion(previousQuestion.value)
+}
+
+async function switchActiveQuestion(question: Question) {
+  if (!task.value) return
+  checkResult.value = null
+  activeQuestion.value = question
+  guidedSessionId.value = ''
+  guidedIntent.value = ''
+  guidedStatus.value = ''
+  guidedSteps.value = []
+  guidedCurrentStep.value = 0
+  guidedTotalSteps.value = 0
+  guidedCitations.value = []
+  resetAnswerForQuestion(question)
+  prepareLocalGuidedSteps(question)
+  showQuestionIntro()
+  await router.replace({ name: 'task-workspace', params: { taskId: task.value.id }, query: { questionId: question.id } })
+  await loadLatestSubmission(task.value.id, question.id)
+  await scrollToBottom()
+}
+
+async function resolveNextTaskId(): Promise<string | null> {
+  if (!task.value) return null
+  const map = await api.learningMap(task.value.course_line_id, studentId.value)
+  const index = map.tasks.findIndex((item) => item.id === task.value?.id)
+  return index >= 0 ? map.tasks[index + 1]?.id || null : null
 }
 
 function clearActiveQuestion() {
@@ -1862,6 +1977,11 @@ function errorMessage(error: any): string {
   line-height: 1.6;
 }
 
+.guided-stepper .stepper-tip {
+  color: #64748b;
+  font-size: 12px;
+}
+
 .citation-strip {
   display: flex;
   flex-wrap: wrap;
@@ -2166,6 +2286,34 @@ function errorMessage(error: any): string {
   letter-spacing: 0;
 }
 
+.code-fill-preview {
+  margin: 12px 16px 0;
+  padding: 12px;
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.code-fill-preview-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.code-fill-preview pre {
+  margin: 10px 0 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #1e293b;
+  font-family: Consolas, 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
 .editor-shell {
   flex: 1;
   display: grid;
@@ -2290,10 +2438,20 @@ function errorMessage(error: any): string {
   margin-top: 12px;
 }
 
-.result-actions {
+.result-actions,
+.question-nav-actions {
   display: flex;
   justify-content: flex-end;
   margin-top: 14px;
+}
+
+.question-nav-actions {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.question-nav-actions .icon-action.primary {
+  margin-left: auto;
 }
 
 .result-block {

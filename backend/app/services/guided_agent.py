@@ -145,6 +145,16 @@ def plan_steps(state: GuidedAgentState) -> GuidedAgentState:
             "knowledge_points": ["Rubric", "自检", "迭代修改"],
         }
     )
+    if question.get("type") == "short_answer":
+        steps = [
+            steps[0],
+            {
+                "title": "组织答案要点",
+                "goal": "把题干要求、课程依据和自己的判断整理成可提交的简答题答案。",
+                "knowledge_points": ["结构化表达", "证据支撑", "关键点覆盖"],
+            },
+            steps[-1],
+        ]
     if is_code_task:
         steps = steps[:2] + [
             {

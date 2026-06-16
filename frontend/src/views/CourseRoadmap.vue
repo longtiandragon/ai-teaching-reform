@@ -89,7 +89,7 @@
         <!-- 不对称网格 -->
         <div class="lesson-grid">
           <article
-            v-for="(lesson, index) in routeItems"
+            v-for="(lesson, index) in displayRouteItems"
             :key="lesson.id"
             :class="[
               'lesson-card',
@@ -148,11 +148,12 @@
                   <div
                     v-for="q in publishedMap[lesson.id]"
                     :key="q.id"
-                    class="question-item"
+                    :class="['question-item', questionStatusClass(q.id)]"
                     @click.stop="enterQuestion(lesson.id, q.id)"
                   >
                     <span class="q-type-badge">{{ qTypeShort(q.type) }}</span>
                     <span class="q-stem-text">{{ q.stem }}</span>
+                    <span :class="['q-status-badge', questionStatusClass(q.id)]">{{ questionStatusLabel(q.id) }}</span>
                     <button class="q-start-btn" @click.stop="enterQuestion(lesson.id, q.id)">开始答题</button>
                   </div>
                 </div>
@@ -188,6 +189,7 @@ const loading = ref(true)
 // Published questions state
 const publishedMap = ref<Record<string, Question[]>>({})
 const expandedQuestions = reactive<Record<string, boolean>>({})
+const questionSubmissionMap = ref<Record<string, { passed: boolean; score: number | null }>>({})
 
 const lessons = computed(() => store.course?.lessons || [])
 const routeItems = computed(() => {
@@ -203,12 +205,22 @@ const routeItems = computed(() => {
   return lessons.value.map((lesson) => ({ ...lesson, status: lesson.status }))
 })
 
+const displayRouteItems = computed(() =>
+  routeItems.value.map((item) => ({ ...item, status: effectiveRouteStatus(item) }))
+)
+
+const firstUnpassedRouteIndex = computed(() => {
+  const index = displayRouteItems.value.findIndex((item) => !isRouteCompleted(item.status))
+  return index >= 0 ? index : Math.max(0, displayRouteItems.value.length - 1)
+})
+
 const currentRouteIndex = computed(() => {
-  const index = routeItems.value.findIndex((item) => item.id === (store.activeTaskId || store.activeLessonId))
+  if (displayRouteItems.value.length) return firstUnpassedRouteIndex.value
+  const index = displayRouteItems.value.findIndex((item) => item.id === (store.activeTaskId || store.activeLessonId))
   return index >= 0 ? index : 0
 })
 
-const activeRouteItem = computed(() => routeItems.value[currentRouteIndex.value] || routeItems.value[0])
+const activeRouteItem = computed(() => displayRouteItems.value[currentRouteIndex.value] || displayRouteItems.value[0])
 const sourceLabel = computed(() => store.activeCourseId === 'nongbo-admin-project' ? '农宝项目' : 'SpringBoot 12 讲')
 const progressPercent = computed(() => {
   if (!routeItems.value.length) return 0
@@ -232,6 +244,7 @@ onMounted(async () => {
     }
     await store.loadLearningMap(session.currentUser?.id)
     await loadPublishedQuestions()
+    await loadQuestionSubmissionStates()
   } catch {
     ElMessage.error('课程路线加载失败，请确认后端服务已启动。')
   } finally {
@@ -243,6 +256,7 @@ async function switchCourse(courseId: string) {
   await store.setCourse(courseId)
   await store.loadLearningMap(session.currentUser?.id)
   await loadPublishedQuestions()
+  await loadQuestionSubmissionStates()
   await router.replace({ path: '/student', query: { course: courseId } })
 }
 
@@ -264,7 +278,33 @@ async function loadPublishedQuestions() {
       map[group.taskId] = group.questions
     }
     publishedMap.value = map
+    questionSubmissionMap.value = {}
   } catch { /* ignore */ }
+}
+
+async function loadQuestionSubmissionStates() {
+  const studentId = session.currentUser?.id
+  if (!studentId) return
+  const visibleQuestionIds = new Set(Object.values(publishedMap.value).flatMap((questions) => questions.map((question) => question.id)))
+  if (!visibleQuestionIds.size) {
+    questionSubmissionMap.value = {}
+    return
+  }
+  try {
+    const res = await api.latestQuestionSubmissions(store.activeCourseId, studentId)
+    const nextMap: Record<string, { passed: boolean; score: number | null }> = {}
+    for (const submission of res.submissions) {
+      if (submission.questionId && visibleQuestionIds.has(submission.questionId)) {
+        nextMap[submission.questionId] = {
+          passed: submission.result.passed,
+          score: submission.result.score ?? null,
+        }
+      }
+    }
+    questionSubmissionMap.value = nextMap
+  } catch {
+    questionSubmissionMap.value = {}
+  }
 }
 
 function toggleQuestions(taskId: string) {
@@ -282,6 +322,31 @@ function qTypeShort(type: string): string {
 
 function courseLabel(courseId: string) {
   return courseId === 'nongbo-admin-project' ? '农宝项目课' : 'SpringBoot 12 讲'
+}
+
+function questionStatusClass(questionId: string): 'passed' | 'failed' | 'unanswered' {
+  const state = questionSubmissionMap.value[questionId]
+  if (!state) return 'unanswered'
+  return state.passed ? 'passed' : 'failed'
+}
+
+function questionStatusLabel(questionId: string): string {
+  const state = questionSubmissionMap.value[questionId]
+  if (!state) return '未作答'
+  return state.passed ? '已通过' : '未通过'
+}
+
+function isRouteCompleted(status: string): boolean {
+  return status === 'completed' || status === 'done'
+}
+
+function effectiveRouteStatus(item: { id: string; status: string }): string {
+  const questions = publishedMap.value[item.id] || []
+  if (!questions.length) return item.status
+  const allPassed = questions.every((question) => questionSubmissionMap.value[question.id]?.passed)
+  if (allPassed) return 'completed'
+  if (item.status === 'locked') return 'locked'
+  return 'needs_revision'
 }
 
 function lessonSubtitle(lesson: { id: string; title: string; tags: string[]; source?: string }) {
@@ -874,6 +939,34 @@ function getSpan(index: number): string {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.q-status-badge {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.q-status-badge.passed {
+  color: #047857;
+  border-color: rgba(4, 120, 87, 0.18);
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.q-status-badge.failed {
+  color: #B91C1C;
+  border-color: rgba(185, 28, 28, 0.18);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.q-status-badge.unanswered {
+  color: #64748B;
+  border-color: rgba(100, 116, 139, 0.18);
+  background: rgba(100, 116, 139, 0.1);
 }
 
 .q-start-btn {

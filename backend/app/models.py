@@ -252,6 +252,7 @@ class AICheckRequest(BaseModel):
     studentId: str
     artifactType: str | None = None
     studentInput: str = Field(min_length=1)
+    questionId: str | None = None
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     chatHistory: list[dict[str, Any]] = Field(default_factory=list)
 
