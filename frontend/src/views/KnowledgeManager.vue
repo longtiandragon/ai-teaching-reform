@@ -48,11 +48,15 @@
 
     <!-- 文件列表 -->
     <section class="file-list panel">
-      <div class="panel-title">
+      <div class="panel-title file-title" @click="fileListExpanded = !fileListExpanded">
         <h3>已上传文件</h3>
-        <span class="muted">{{ files.length }} 个文件</span>
+        <div class="title-right">
+          <span class="muted">{{ files.length }} 个文件</span>
+          <ChevronDown :size="16" :class="['collapse-icon', { expanded: fileListExpanded }]" />
+        </div>
       </div>
-      <div class="file-table">
+      <Transition name="collapse">
+        <div v-show="fileListExpanded" class="file-table">
         <div v-if="!files.length" class="empty-state">
           <Database :size="32" />
           <p>暂无文件，请上传知识库资料。</p>
@@ -68,6 +72,7 @@
           </button>
         </div>
       </div>
+      </Transition>
     </section>
 
     <!-- ========== 题库管理 ========== -->
@@ -257,11 +262,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Upload, Database, FileText, Trash2, Plus } from 'lucide-vue-next'
+import { Upload, Database, FileText, Trash2, Plus, ChevronDown } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import { api, type Question, type QuestionCreatePayload, type QuestionOption, type LearningTaskSummary } from '../api'
 
 const showUpload = ref(false)
+const fileListExpanded = ref(true)
 const uploading = ref(false)
 const uploadFile = ref<File | null>(null)
 const uploadCourseLine = ref('nongbo-admin-project')
@@ -717,8 +723,72 @@ async function handleUnpublish(questionId: string, taskId: string) {
   font-size: 14px;
 }
 
+.file-title {
+  cursor: pointer;
+  user-select: none;
+}
+
+.file-title:hover {
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.title-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.collapse-icon {
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  color: var(--text-secondary);
+}
+
+.collapse-icon.expanded {
+  transform: rotate(180deg);
+}
+
 .file-table {
   padding: 12px 20px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.file-table::-webkit-scrollbar {
+  width: 6px;
+}
+
+.file-table::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.file-table::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.file-table::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* 折叠动画 */
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: all 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  overflow: hidden;
+}
+
+.collapse-enter-from,
+.collapse-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.collapse-enter-to,
+.collapse-leave-from {
+  opacity: 1;
+  max-height: 500px;
 }
 
 .file-row {

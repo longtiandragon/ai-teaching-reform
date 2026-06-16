@@ -32,6 +32,14 @@
             <span>学习记录</span>
           </RouterLink>
           <RouterLink
+            to="/student/error-book"
+            class="nav-pill"
+            @click="triggerFlow"
+          >
+            <BookOpen :size="14" />
+            <span>错题本</span>
+          </RouterLink>
+          <RouterLink
             v-if="false"
             to="/student/ai-config"
             class="nav-pill"
@@ -63,7 +71,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Cpu, Map, ClipboardList, Settings, LogOut } from 'lucide-vue-next'
+import { Cpu, Map, ClipboardList, BookOpen, Settings, LogOut } from 'lucide-vue-next'
 import { useSessionStore } from '../stores/session'
 import ScanlineOverlay from '../components/ScanlineOverlay.vue'
 import BorderLightFlow from '../components/BorderLightFlow.vue'

@@ -160,3 +160,75 @@ def get_file_tasks(file_id: str) -> list[str]:
             (file_id,),
         ).fetchall()
         return [row["task_id"] for row in rows]
+
+
+def sync_seed_files_to_kb(rag_chunks: list) -> int:
+    """将 RAG 种子文件同步注册到 kb_files 表。
+
+    扫描 rag_service 的 chunks，按 source 聚合后注册。
+    返回新注册的文件数。
+    """
+    init_kb_tables()
+
+    # 按 source 聚合 chunks（去重：同一文件名只计一次）
+    source_counts: dict[str, int] = {}
+    for chunk in rag_chunks:
+        source = getattr(chunk, 'source', '') or ''
+        if source:
+            # 提取文件名作为去重 key
+            filename = _source_to_filename(source)
+            source_counts[filename] = source_counts.get(filename, 0) + 1
+
+    now = datetime.now(UTC).isoformat()
+    new_count = 0
+
+    with get_conn() as conn:
+        # 获取已注册的文件名
+        existing = {row["filename"] for row in conn.execute("SELECT filename FROM kb_files").fetchall()}
+
+        for source, chunk_count in source_counts.items():
+            # 从 source 推断文件名
+            filename = _source_to_filename(source)
+            if filename in existing:
+                continue
+
+            file_id = f"kb-seed-{uuid.uuid4().hex[:8]}"
+            file_type = _filename_to_type(filename)
+            course_line_id = _source_to_course(source)
+
+            conn.execute(
+                """
+                INSERT INTO kb_files(id, filename, file_type, course_line_id, chunk_count, uploaded_by, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (file_id, filename, file_type, course_line_id, chunk_count, 'system', now),
+            )
+            new_count += 1
+
+        conn.commit()
+
+    return new_count
+
+
+def _source_to_filename(source: str) -> str:
+    """从 RAG source 推断文件名。"""
+    if '/' in source:
+        parts = source.split('/')
+        return parts[-1] if parts[-1] else source
+    return source
+
+
+def _filename_to_type(filename: str) -> str:
+    """从文件名推断类型。"""
+    if '.' in filename:
+        return '.' + filename.rsplit('.', 1)[-1]
+    return '.md'
+
+
+def _source_to_course(source: str) -> str | None:
+    """从 source 推断课程线。"""
+    if 'nongbo' in source.lower() or '农宝' in source:
+        return 'nongbo-admin-project'
+    if 'springboot' in source.lower():
+        return 'springboot-course-12'
+    return None

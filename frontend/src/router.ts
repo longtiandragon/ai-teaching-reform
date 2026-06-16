@@ -8,6 +8,7 @@ const StudentLayout = () => import('./views/StudentLayout.vue')
 const CourseRoadmap = () => import('./views/CourseRoadmap.vue')
 const StudentRecords = () => import('./views/StudentRecords.vue')
 const TaskWorkspace = () => import('./views/TaskWorkspace.vue')
+const ErrorBook = () => import('./views/ErrorBook.vue')
 
 // 教师端
 const TeacherLayout = () => import('./views/TeacherLayout.vue')
@@ -31,6 +32,7 @@ export const router = createRouter({
         { path: '', component: CourseRoadmap },
         { path: 'task/:taskId', name: 'task-workspace', component: TaskWorkspace },
         { path: 'records', component: StudentRecords },
+        { path: 'error-book', component: ErrorBook },
       ],
     },
 

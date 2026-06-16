@@ -9,13 +9,19 @@ from backend.app.services.database import interaction_rows, latest_submission_ro
 from backend.app.services.rag import rag_service
 
 
-def teacher_analytics() -> dict:
+def teacher_analytics(student_id: str | None = None) -> dict:
     interactions = [dict(row) for row in interaction_rows()]
     records = [dict(row) for row in learning_rows()]
     submissions = [dict(row) for row in latest_submission_rows()]
     classes = [dict(row) for row in list_classes()]
     users = [dict(row) for row in list_users()]
     students = [user for user in users if user["role"] == "student"]
+
+    # 按学生筛选
+    if student_id:
+        interactions = [r for r in interactions if r.get("student_id") == student_id]
+        records = [r for r in records if r.get("student_id") == student_id]
+        submissions = [r for r in submissions if r.get("student_id") == student_id]
     rag_status = rag_service.status()
     questions = [row["question"] or "" for row in interactions if row["kind"] == "chat"]
     completed_pairs = {(row["student_id"], row["course_id"], row["lesson_id"]) for row in records}
@@ -78,19 +84,37 @@ def _lesson_progress(rows: list[dict]) -> list[dict]:
     if not counts:
         return []
     max_count = max(counts.values())
+    # 课程课时标题
     lesson_titles = {
         (course.id, lesson.id): lesson.title
         for course in get_courses()
         for lesson in course.lessons
     }
+    # 任务标题（从 learning_tasks 表）
+    task_titles = _task_title_map()
+    # 合并查找
+    def _get_title(key):
+        return lesson_titles.get(key) or task_titles.get(key[1]) or key[1] or ""
     return [
         {
-            "lesson": lesson_titles.get(key, key[1] or ""),
+            "lesson": _get_title(key),
+            "courseId": key[0] or "",
             "completed": round(count / max_count * 100),
             "interactions": count,
         }
-        for key, count in counts.most_common(12)
+        for key, count in counts.most_common(24)
     ]
+
+
+def _task_title_map() -> dict[str, str]:
+    """从 learning_tasks 表获取 task_id -> title 映射。"""
+    try:
+        from backend.app.services.database import get_conn
+        with get_conn() as conn:
+            rows = conn.execute("SELECT id, title FROM learning_tasks").fetchall()
+            return {row["id"]: row["title"] for row in rows}
+    except Exception:
+        return {}
 
 
 def _hot_questions(questions: list[str]) -> list[dict]:
@@ -112,10 +136,17 @@ def _weak_points(records: list[dict]) -> list[dict]:
         for course in get_courses()
         for lesson in course.lessons
     }
+    task_titles = _task_title_map()
     counts = Counter((row["course_id"], row["lesson_id"]) for row in low_scores)
+    def _get_title(key):
+        return lesson_titles.get(key) or task_titles.get(key[1]) or key[1] or "未标记"
     return [
-        {"name": lesson_titles.get(key, key[1] or "未标记章节"), "value": min(100, count * 20)}
-        for key, count in counts.most_common(8)
+        {
+            "name": _get_title(key),
+            "courseId": key[0] or "",
+            "value": min(100, count * 20),
+        }
+        for key, count in counts.most_common(12)
     ]
 
 

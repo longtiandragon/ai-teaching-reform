@@ -88,6 +88,8 @@ async def lifespan(_: FastAPI):
         + [question.model_dump() for question in questions_by_course(NONGBO_COURSE_ID)]
     )
     rag_service.ingest_seed()
+    # 同步种子文件到知识库文件表
+    kb_manager.sync_seed_files_to_kb(rag_service._chunks)
     yield
 
 
@@ -579,6 +581,37 @@ async def local_check_record(payload: dict) -> dict:
         feedback=reply,
         answers=rubric_scores,
     )
+
+    # 自动收集错题：得分 < 70 或未通过时收录到错题本
+    if score < 70 or not passed:
+        # 提取知识点
+        kp_list = []
+        for rs in rubric_scores:
+            if isinstance(rs, dict) and rs.get("name"):
+                kp_list.append(rs["name"])
+        knowledge_points = ", ".join(kp_list[:5])
+
+        # 提取正确答案（从 rubric 的 answer 字段）
+        correct_answer = ""
+        task_detail = await asyncio.to_thread(get_task_detail, str(payload["taskId"]))
+        if task_detail and hasattr(task_detail, "instruction"):
+            correct_answer = task_detail.instruction[:200]
+
+        await asyncio.to_thread(
+            add_error_entry,
+            student_id=str(payload["studentId"]),
+            source_type="ai_check",
+            source_id=f"check-{payload['taskId']}",
+            course_line_id=str(payload["courseLineId"]),
+            task_id=str(payload["taskId"]),
+            question=student_input[:500],
+            student_answer=student_input[:500],
+            correct_answer=correct_answer,
+            error_analysis=reply[:300] if reply else "",
+            knowledge_points=knowledge_points,
+            difficulty="medium",
+        )
+
     return {"ok": True}
 
 
@@ -706,8 +739,8 @@ async def agent_run(request: AgentSkillRunRequest) -> AgentSkillRunResponse:
 
 
 @app.get("/api/teacher/analytics")
-async def analytics() -> dict:
-    return await asyncio.to_thread(teacher_analytics)
+async def analytics(student_id: str | None = None) -> dict:
+    return await asyncio.to_thread(teacher_analytics, student_id)
 
 
 @app.get("/api/teacher/course-lines/{course_line_id}/analytics")
@@ -786,6 +819,141 @@ async def get_all_feedback_endpoint() -> dict:
             item["analysis"] = None
         feedback.append(item)
     return {"feedback": feedback}
+
+
+# ---------- 错题本 API ----------
+
+from backend.app.services.database import (
+    add_error_entry,
+    get_error_book,
+    get_error_entry,
+    update_error_entry,
+    delete_error_entry,
+    get_error_stats,
+)
+
+@app.get("/api/error-book/{student_id}")
+async def get_error_book_endpoint(student_id: str, status: str | None = None) -> dict:
+    entries = await asyncio.to_thread(get_error_book, student_id, status)
+    return {"entries": entries, "total": len(entries)}
+
+
+@app.get("/api/error-book/{student_id}/stats")
+async def get_error_stats_endpoint(student_id: str) -> dict:
+    return await asyncio.to_thread(get_error_stats, student_id)
+
+
+@app.post("/api/error-book")
+async def add_error_entry_endpoint(payload: dict) -> dict:
+    entry_id = await asyncio.to_thread(
+        add_error_entry,
+        student_id=payload.get("studentId", ""),
+        source_type=payload.get("sourceType", "manual"),
+        question=payload.get("question", ""),
+        student_answer=payload.get("studentAnswer", ""),
+        correct_answer=payload.get("correctAnswer", ""),
+        error_analysis=payload.get("errorAnalysis", ""),
+        knowledge_points=payload.get("knowledgePoints", ""),
+        difficulty=payload.get("difficulty", "medium"),
+        source_id=payload.get("sourceId"),
+        course_line_id=payload.get("courseLineId"),
+        task_id=payload.get("taskId"),
+    )
+    return {"id": entry_id, "ok": True}
+
+
+@app.put("/api/error-book/{entry_id}")
+async def update_error_entry_endpoint(entry_id: int, payload: dict) -> dict:
+    fields = {}
+    if "status" in payload:
+        fields["status"] = payload["status"]
+    if "ai_analysis" in payload:
+        fields["ai_analysis"] = payload["ai_analysis"]
+    if "variant_question" in payload:
+        fields["variant_question"] = payload["variant_question"]
+    if "variant_answer" in payload:
+        fields["variant_answer"] = payload["variant_answer"]
+    ok = await asyncio.to_thread(update_error_entry, entry_id, **fields)
+    return {"ok": ok}
+
+
+@app.delete("/api/error-book/{entry_id}")
+async def delete_error_entry_endpoint(entry_id: int) -> dict:
+    ok = await asyncio.to_thread(delete_error_entry, entry_id)
+    return {"ok": ok}
+
+
+@app.post("/api/error-book/{entry_id}/analyze")
+async def analyze_error_endpoint(entry_id: int) -> dict:
+    """AI 分析错题，生成错误原因、知识点、正确思路。"""
+    entry = await asyncio.to_thread(get_error_entry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="entry not found")
+
+    prompt = f"""你是一个教学分析助手。请分析以下学生做错的题目。
+
+题目：{entry['question']}
+学生答案：{entry['student_answer'] or '未提供'}
+正确答案：{entry['correct_answer'] or '未提供'}
+
+请用 JSON 格式返回分析：
+{{
+  "errorAnalysis": "错误原因分析（具体说明学生哪里理解错了）",
+  "knowledgePoints": "涉及的知识点（逗号分隔）",
+  "correctApproach": "正确的解题思路",
+  "tips": "避免再犯的建议"
+}}"""
+
+    try:
+        result = await deepseek_client.direct_answer(prompt)
+        # 提取 JSON 部分（兼容 markdown 代码块包裹）
+        text = result.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        analysis = json.loads(text)
+        await asyncio.to_thread(
+            update_error_entry, entry_id,
+            ai_analysis=json.dumps(analysis, ensure_ascii=False),
+            error_analysis=analysis.get("errorAnalysis", ""),
+            knowledge_points=analysis.get("knowledgePoints", ""),
+        )
+        return {"ok": True, "analysis": analysis}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:200]}
+
+
+@app.post("/api/error-book/{entry_id}/generate-variant")
+async def generate_variant_endpoint(entry_id: int) -> dict:
+    """基于错题生成变体练习题。"""
+    entry = await asyncio.to_thread(get_error_entry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="entry not found")
+
+    prompt = f"""你是一个出题助手。基于以下错题，生成一道类似的变体练习题。
+
+原题：{entry['question']}
+知识点：{entry['knowledge_points'] or '未标注'}
+
+请用 JSON 格式返回：
+{{
+  "variantQuestion": "变体题目（和原题类似但不完全相同）",
+  "variantAnswer": "参考答案"
+}}"""
+
+    try:
+        result = await deepseek_client.direct_answer(prompt)
+        text = result.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        variant = json.loads(text)
+        await asyncio.to_thread(
+            update_error_entry, entry_id,
+            variant_question=variant.get("variantQuestion", ""),
+            variant_answer=variant.get("variantAnswer", ""),
+        )
+        return {"ok": True, "variant": variant}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)[:200]}
 
 
 # ---------- 知识库文件管理 ----------

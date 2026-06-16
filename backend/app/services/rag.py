@@ -107,7 +107,13 @@ class RagService:
         chunks.extend(self._project_document_chunks())
         chunks.extend(self._sql_schema_chunks())
         chunks.extend(self._requirement_spec_chunks())
-        chunks.extend(self._uploaded_document_chunks())
+        # 收集已有的 source 文件名，避免 _uploaded_document_chunks 重复加载
+        existing_sources: set[str] = set()
+        for chunk in chunks:
+            if chunk.source:
+                filename = chunk.source.split('/')[-1] if '/' in chunk.source else chunk.source
+                existing_sources.add(filename)
+        chunks.extend(self._uploaded_document_chunks(skip_files=existing_sources))
         self._chunks = [chunk for chunk in chunks if chunk.text.strip()]
         self._try_init_chroma(self._chunks)
         return len(self._chunks)
@@ -122,7 +128,11 @@ class RagService:
         task_ids: list[str] | tuple[str, ...] | None = None,
     ) -> int:
         existing_id = file_id or f"upload:{filename}"
-        self._chunks = [chunk for chunk in self._chunks if chunk.file_id != existing_id]
+        # 去重：同时按 file_id 和 source 文件名去重
+        self._chunks = [
+            chunk for chunk in self._chunks
+            if chunk.file_id != existing_id and chunk.source != f"upload/{filename}"
+        ]
         linked_tasks = tuple(task_ids or ())
         new_chunks = [
             KnowledgeChunk(
@@ -529,7 +539,7 @@ class RagService:
             for index, part in enumerate(self._split_text(pc_text, self.settings.rag_chunk_size))
         ]
 
-    def _uploaded_document_chunks(self) -> list[KnowledgeChunk]:
+    def _uploaded_document_chunks(self, skip_files: set[str] | None = None) -> list[KnowledgeChunk]:
         try:
             from backend.app.services import kb_manager
 
@@ -540,6 +550,9 @@ class RagService:
         chunks: list[KnowledgeChunk] = []
         for file in files:
             filename = str(file.get("filename") or "")
+            # 跳过已被其他来源加载的文件
+            if skip_files and filename in skip_files:
+                continue
             file_id = str(file.get("id") or "")
             if not filename or not file_id:
                 continue

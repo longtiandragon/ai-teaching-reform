@@ -48,22 +48,53 @@
     <!-- 数据面板：12 列网格 -->
     <section class="dashboard-grid">
       <!-- 章节分布图：8 列 -->
-      <div class="panel chart-panel col-8">
+      <div :class="['panel', 'chart-panel', expandedChart === 'progress' ? 'col-12' : 'col-8']">
         <div class="panel-head">
           <h3>章节学习分布</h3>
-          <Activity :size="16" />
+          <div class="head-right">
+            <select v-model="progressCourseFilter" class="chart-select" @change="loadProgressData">
+              <option value="nongbo-admin-project">农宝系统项目</option>
+              <option value="springboot-course-12">SpringBoot 12讲</option>
+            </select>
+            <select v-model="progressStudentFilter" class="chart-select" @change="loadProgressData">
+              <option value="all">全部学生</option>
+              <option v-for="s in students" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+            <span v-if="lastRefresh" class="refresh-time">{{ lastRefresh }}</span>
+            <button class="refresh-btn" @click="refreshData" :disabled="refreshing">
+              <RefreshCw :size="14" :class="{ spinning: refreshing }" />
+            </button>
+            <button class="expand-btn" @click="toggleExpand('progress')" :title="expandedChart === 'progress' ? '收起' : '展开'">
+              <Maximize2 v-if="expandedChart !== 'progress'" :size="14" />
+              <Minimize2 v-else :size="14" />
+            </button>
+          </div>
         </div>
-        <div v-if="analytics?.lessonProgress?.length" ref="progressChart" class="chart"></div>
+        <div v-if="progressData.length" ref="progressChart" :class="['chart', { 'chart-expanded': expandedChart === 'progress' }]"></div>
         <div v-else class="empty-state">暂无学生学习记录，完成一次自检或提交后会生成分布。</div>
       </div>
 
       <!-- 薄弱点雷达：4 列 -->
-      <div class="panel chart-panel col-4">
+      <div :class="['panel', 'chart-panel', expandedChart === 'weak' ? 'col-12' : 'col-4']">
         <div class="panel-head">
           <h3>低分练习</h3>
-          <Radar :size="16" />
+          <div class="head-right">
+            <select v-model="weakCourseFilter" class="chart-select" @change="loadWeakData">
+              <option value="nongbo-admin-project">农宝系统项目</option>
+              <option value="springboot-course-12">SpringBoot 12讲</option>
+            </select>
+            <select v-model="weakStudentFilter" class="chart-select" @change="loadWeakData">
+              <option value="all">全部学生</option>
+              <option v-for="s in students" :key="s.id" :value="s.id">{{ s.name }}</option>
+            </select>
+            <button class="expand-btn" @click="toggleExpand('weak')" :title="expandedChart === 'weak' ? '收起' : '展开'">
+              <Maximize2 v-if="expandedChart !== 'weak'" :size="14" />
+              <Minimize2 v-else :size="14" />
+            </button>
+            <Radar :size="16" />
+          </div>
         </div>
-        <div v-if="analytics?.weakPoints?.length" ref="weakChart" class="chart"></div>
+        <div v-if="weakData.length" ref="weakChart" :class="['chart', { 'chart-expanded': expandedChart === 'weak' }]"></div>
         <div v-else class="empty-state compact">暂无低分练习记录。</div>
       </div>
 
@@ -153,23 +184,61 @@ import {
   ClipboardCheck,
   DatabaseZap,
   FileSearch,
+  Maximize2,
   MessageSquareText,
+  Minimize2,
   Radar,
+  RefreshCw,
   Target,
   Users,
 } from 'lucide-vue-next'
 import { ElMessage, ElButton } from 'element-plus'
 import { api } from '../api'
+import { useSessionStore } from '../stores/session'
+
+const session = useSessionStore()
 
 echarts.use([BarChart, RadarChart, GridComponent, RadarComponent, TooltipComponent, CanvasRenderer])
 
 const analytics = ref<any>(null)
 const health = ref<any>(null)
 const ingesting = ref(false)
+const refreshing = ref(false)
+const lastRefresh = ref('')
 const progressChart = ref<HTMLElement | null>(null)
 const weakChart = ref<HTMLElement | null>(null)
 let progressInstance: echarts.ECharts | null = null
 let weakInstance: echarts.ECharts | null = null
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+// 筛选状态
+const progressCourseFilter = ref('nongbo-admin-project')
+const progressStudentFilter = ref('all')
+const weakCourseFilter = ref('nongbo-admin-project')
+const weakStudentFilter = ref('all')
+const expandedChart = ref<string | null>(null)
+
+// 学生列表
+const students = computed(() => session.students)
+
+// 筛选后的数据
+const progressData = computed(() => {
+  let data = analytics.value?.lessonProgress || []
+  data = data.filter((item: any) => item.courseId === progressCourseFilter.value)
+  if (progressStudentFilter.value !== 'all') {
+    data = data.filter((item: any) => item.studentId === progressStudentFilter.value)
+  }
+  return data
+})
+
+const weakData = computed(() => {
+  let data = analytics.value?.weakPoints || []
+  data = data.filter((item: any) => item.courseId === weakCourseFilter.value)
+  if (weakStudentFilter.value !== 'all') {
+    data = data.filter((item: any) => item.studentId === weakStudentFilter.value)
+  }
+  return data
+})
 
 const metrics = computed(() => [
   { label: '学生人数', value: analytics.value?.summary.students ?? 0, icon: Users },
@@ -177,20 +246,76 @@ const metrics = computed(() => [
   { label: '整体完成率', value: `${analytics.value?.summary.completionRate ?? 0}%`, icon: Target },
   { label: '需干预', value: analytics.value?.summary.interventionTasks ?? 0, icon: ClipboardCheck },
 ])
-onMounted(load)
+onMounted(() => {
+  load()
+  // 每 30 秒自动刷新
+  refreshTimer = setInterval(() => refreshData(), 30000)
+})
 onBeforeUnmount(() => {
   progressInstance?.dispose()
   weakInstance?.dispose()
+  if (refreshTimer) clearInterval(refreshTimer)
 })
 
 async function load() {
   try {
-    ;[health.value, analytics.value] = await Promise.all([api.health(), api.analytics()])
+    const sid = progressStudentFilter.value !== 'all' ? progressStudentFilter.value : undefined
+    ;[health.value, analytics.value] = await Promise.all([api.health(), api.analytics(sid)])
     await nextTick()
     renderCharts()
+    updateRefreshTime()
   } catch {
     ElMessage.error('教师端数据加载失败，请确认后端服务已启动。')
   }
+}
+
+async function refreshData() {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    const sid = progressStudentFilter.value !== 'all' ? progressStudentFilter.value : undefined
+    ;[health.value, analytics.value] = await Promise.all([api.health(), api.analytics(sid)])
+    await nextTick()
+    renderCharts()
+    updateRefreshTime()
+  } catch { /* silent */ } finally {
+    refreshing.value = false
+  }
+}
+
+function updateRefreshTime() {
+  const now = new Date()
+  lastRefresh.value = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
+}
+
+function toggleExpand(chart: string) {
+  expandedChart.value = expandedChart.value === chart ? null : chart
+  // 展开/收起后重新渲染图表
+  nextTick(() => renderCharts())
+}
+
+async function loadProgressData() {
+  // 切换学生时重新获取数据
+  if (progressStudentFilter.value !== 'all') {
+    const sid = progressStudentFilter.value
+    analytics.value = await api.analytics(sid)
+  } else {
+    analytics.value = await api.analytics()
+  }
+  await nextTick()
+  renderCharts()
+}
+
+async function loadWeakData() {
+  // 切换学生时重新获取数据
+  if (weakStudentFilter.value !== 'all') {
+    const sid = weakStudentFilter.value
+    analytics.value = await api.analytics(sid)
+  } else {
+    analytics.value = await api.analytics()
+  }
+  await nextTick()
+  renderCharts()
 }
 
 async function ingest() {
@@ -205,46 +330,214 @@ async function ingest() {
 }
 
 function renderCharts() {
-  progressInstance?.dispose()
-  weakInstance?.dispose()
-  progressInstance = null
-  weakInstance = null
+  renderProgressChart()
+  renderWeakChart()
+}
 
-  if (progressChart.value && analytics.value?.lessonProgress?.length) {
+function renderProgressChart() {
+  progressInstance?.dispose()
+  progressInstance = null
+
+  if (progressChart.value) {
+    // 根据课程筛选器决定 X 轴
+    const springbootLessons = [
+      '第1讲 Maven', '第2讲 DI/IoC', '第3讲 MySQL', '第4讲 JDBC',
+      '第5讲 CRUD', '第6讲 分页', '第7讲 事务', '第8讲 异常',
+      '第9讲 实战', '第10讲 认证', '第11讲 AOP', '第12讲 原理',
+    ]
+    const nongboTasks = [
+      '业务需求梳理', '数据库表结构分析', 'SSM配置文件理解',
+      'Mapper XML手写SQL', 'SpringBoot搭建', '专家CRUD开发',
+      '图文课程管理', '补贴政策模块', '农事服务模块',
+      '农产品与市场', 'Vue前端联调', '数据统计大屏',
+    ]
+
+    const isNongbo = progressCourseFilter.value === 'nongbo-admin-project'
+    const allLabels = isNongbo ? nongboTasks : springbootLessons
+
+    // 将后端数据映射到 X 轴
+    const dataMap = new Map<string, number>()
+    for (const item of progressData.value) {
+      dataMap.set(item.lesson, item.completed)
+    }
+
+    // SpringBoot 模糊匹配
+    const sbPatterns = [
+      { key: 'Maven', idx: 0 }, { key: 'DI', idx: 1 }, { key: 'IoC', idx: 1 },
+      { key: 'MySQL', idx: 2 }, { key: 'JDBC', idx: 3 }, { key: 'MyBatis', idx: 3 },
+      { key: 'CRUD', idx: 4 }, { key: '部门', idx: 4 }, { key: '分页', idx: 5 },
+      { key: '查询', idx: 5 }, { key: '事务', idx: 6 }, { key: '上传', idx: 6 },
+      { key: '异常', idx: 7 }, { key: '实战', idx: 8 }, { key: '认证', idx: 9 },
+      { key: '登录', idx: 9 }, { key: 'AOP', idx: 10 }, { key: '日志', idx: 10 },
+      { key: '原理', idx: 11 }, { key: '自动配置', idx: 11 },
+    ]
+    // 农宝模糊匹配
+    const nbPatterns = [
+      { key: '需求', idx: 0 }, { key: '数据库', idx: 1 }, { key: '表结构', idx: 1 },
+      { key: 'SSM', idx: 2 }, { key: '配置', idx: 2 }, { key: 'Mapper', idx: 3 },
+      { key: 'XML', idx: 3 }, { key: 'SpringBoot', idx: 4 }, { key: '搭建', idx: 4 },
+      { key: '专家', idx: 5 }, { key: 'Expert', idx: 5 }, { key: '课程', idx: 6 },
+      { key: 'Graphic', idx: 6 }, { key: '补贴', idx: 7 }, { key: '政策', idx: 7 },
+      { key: '服务', idx: 8 }, { key: 'Service', idx: 8 }, { key: '农产品', idx: 9 },
+      { key: '市场', idx: 9 }, { key: 'Vue', idx: 10 }, { key: '前端', idx: 10 },
+      { key: '统计', idx: 11 }, { key: 'Dashboard', idx: 11 },
+    ]
+    const patterns = isNongbo ? nbPatterns : sbPatterns
+    const barData = new Array(12).fill(0)
+    for (const [name, value] of dataMap.entries()) {
+      for (const pat of patterns) {
+        if (name.includes(pat.key)) {
+          barData[pat.idx] = Math.max(barData[pat.idx], value)
+          break
+        }
+      }
+    }
+
     progressInstance = echarts.init(progressChart.value)
     progressInstance.setOption({
-      tooltip: {},
-      grid: { left: 38, right: 18, top: 28, bottom: 72 },
+      tooltip: {
+        trigger: 'axis',
+        backgroundColor: 'rgba(255,253,251,0.95)',
+        borderColor: 'rgba(0,0,0,0.06)',
+        textStyle: { color: '#1A1A1A', fontSize: 13 },
+        formatter: (params: any) => {
+          const p = params[0]
+          return `<strong>${p.name}</strong><br/>活跃度: ${p.value}%`
+        },
+      },
+      grid: { left: 42, right: 18, top: 28, bottom: 56 },
       xAxis: {
         type: 'category',
-        data: analytics.value.lessonProgress.map((item: any) => item.lesson),
-        axisLabel: { interval: 0, rotate: 24 },
+        data: allLabels,
+        axisLabel: { interval: 0, rotate: 20, fontSize: 10, color: '#78716C' },
+        axisLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+        axisTick: { show: false },
       },
-      yAxis: { type: 'value', max: 100 },
+      yAxis: {
+        type: 'value',
+        max: 100,
+        axisLabel: { fontSize: 11, color: '#78716C', formatter: '{value}%' },
+        splitLine: { lineStyle: { color: 'rgba(0,0,0,0.04)' } },
+      },
       series: [
         {
           type: 'bar',
-          data: analytics.value.lessonProgress.map((item: any) => item.completed),
-          itemStyle: { color: '#2c7be5', borderRadius: [5, 5, 0, 0] },
+          data: barData,
+          barWidth: '45%',
+          itemStyle: {
+            borderRadius: [4, 4, 0, 0],
+            color: (params: any) => {
+              if (params.value === 0) return 'rgba(0,0,0,0.04)'
+              return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: '#FF9D76' },
+                { offset: 1, color: '#FFD166' },
+              ])
+            },
+          },
+          emphasis: {
+            itemStyle: {
+              color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                { offset: 0, color: '#FF8B5E' },
+                { offset: 1, color: '#FFC233' },
+              ]),
+            },
+          },
+          animationDuration: 800,
+          animationEasing: 'cubicOut',
         },
       ],
     })
   }
-  if (weakChart.value && analytics.value?.weakPoints?.length) {
+}
+
+function renderWeakChart() {
+  weakInstance?.dispose()
+  weakInstance = null
+
+  if (weakChart.value) {
+    // 根据课程筛选器决定雷达图标签
+    const springbootLabels = ['Maven', 'DI/IoC', 'MySQL', 'JDBC', 'CRUD', '分页', '事务', '异常', '实战', '认证', 'AOP', '原理']
+    const nongboLabels = ['需求分析', '数据库设计', 'SSM配置', 'Mapper XML', 'SpringBoot', '专家CRUD', '课程管理', '补贴政策', '农事服务', '农产品', 'Vue联调', '数据统计']
+
+    const isNongbo = weakCourseFilter.value !== 'springboot-course-12'
+    const allLabels = isNongbo ? nongboLabels : springbootLabels
+
+    // 映射数据到雷达图
+    const dataMap = new Map<string, number>()
+    for (const item of weakData.value) {
+      dataMap.set(item.name, item.value)
+    }
+
+    const sbPatterns = [
+      { key: 'Maven', idx: 0 }, { key: 'DI', idx: 1 }, { key: 'IoC', idx: 1 },
+      { key: 'MySQL', idx: 2 }, { key: 'JDBC', idx: 3 }, { key: 'MyBatis', idx: 3 },
+      { key: 'CRUD', idx: 4 }, { key: '部门', idx: 4 }, { key: '分页', idx: 5 },
+      { key: '查询', idx: 5 }, { key: '事务', idx: 6 }, { key: '异常', idx: 7 },
+      { key: '实战', idx: 8 }, { key: '认证', idx: 9 }, { key: '登录', idx: 9 },
+      { key: 'AOP', idx: 10 }, { key: '日志', idx: 10 }, { key: '原理', idx: 11 },
+    ]
+    const nbPatterns = [
+      { key: '需求', idx: 0 }, { key: '数据库', idx: 1 }, { key: 'SSM', idx: 2 },
+      { key: 'Mapper', idx: 3 }, { key: 'XML', idx: 3 }, { key: 'SpringBoot', idx: 4 },
+      { key: '专家', idx: 5 }, { key: 'Expert', idx: 5 }, { key: '课程', idx: 6 },
+      { key: 'Graphic', idx: 6 }, { key: '补贴', idx: 7 }, { key: '政策', idx: 7 },
+      { key: '服务', idx: 8 }, { key: 'Service', idx: 8 }, { key: '农产品', idx: 9 },
+      { key: '市场', idx: 9 }, { key: 'Vue', idx: 10 }, { key: '前端', idx: 10 },
+      { key: '统计', idx: 11 }, { key: 'Dashboard', idx: 11 },
+    ]
+    const patterns = isNongbo ? nbPatterns : sbPatterns
+    const radarData = new Array(12).fill(0)
+    for (const [name, value] of dataMap.entries()) {
+      for (const pat of patterns) {
+        if (name.includes(pat.key)) {
+          radarData[pat.idx] = Math.max(radarData[pat.idx], value)
+          break
+        }
+      }
+    }
+
+    // 过滤掉全为 0 的轴
+    const filteredLabels: Array<{ name: string; max: number }> = []
+    const filteredData: number[] = []
+    for (let i = 0; i < allLabels.length; i++) {
+      filteredLabels.push({ name: allLabels[i], max: 100 })
+      filteredData.push(radarData[i])
+    }
+
+    // 即使没有数据也显示空雷达
+    if (!filteredData.some(v => v > 0)) {
+      return
+    }
+
     weakInstance = echarts.init(weakChart.value)
     weakInstance.setOption({
-      tooltip: {},
+      tooltip: {
+        backgroundColor: 'rgba(255,253,251,0.95)',
+        borderColor: 'rgba(0,0,0,0.06)',
+        textStyle: { color: '#1A1A1A', fontSize: 13 },
+      },
       radar: {
-        indicator: analytics.value.weakPoints.map((item: any) => ({ name: item.name, max: 100 })),
-        radius: 96,
+        indicator: filteredLabels,
+        radius: '65%',
+        axisName: { color: '#78716C', fontSize: 10 },
+        splitArea: { areaStyle: { color: ['rgba(255,157,118,0.02)', 'rgba(255,157,118,0.05)'] } },
+        splitLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
+        axisLine: { lineStyle: { color: 'rgba(0,0,0,0.06)' } },
       },
       series: [
         {
           type: 'radar',
-          data: [{ value: analytics.value.weakPoints.map((item: any) => item.value), name: '低分记录' }],
-          areaStyle: { color: 'rgba(230, 126, 34, 0.2)' },
-          lineStyle: { color: '#e67e22' },
-          itemStyle: { color: '#e67e22' },
+          data: [{
+            value: filteredData,
+            name: '低分记录',
+            areaStyle: { color: 'rgba(255,157,118,0.15)' },
+            lineStyle: { color: '#FF9D76', width: 2 },
+            itemStyle: { color: '#FF9D76', borderColor: '#fff', borderWidth: 2 },
+            symbol: 'circle',
+            symbolSize: 6,
+          }],
+          animationDuration: 800,
+          animationEasing: 'cubicOut',
         },
       ],
     })
@@ -444,10 +737,98 @@ function sourceKindLabel(kind: string) {
   color: var(--text-secondary);
 }
 
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refresh-time {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--accent-primary);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ─── 图表筛选器 ─── */
+.chart-select {
+  padding: 4px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  font-size: 11px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+}
+
+.chart-select:focus {
+  border-color: var(--accent-primary);
+}
+
+.expand-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.expand-btn:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--accent-primary);
+}
+
 /* ─── 图表 ─── */
 .chart {
   height: 280px;
   padding: 12px;
+  transition: height 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.chart-expanded {
+  height: 500px;
+}
+
+.col-12 {
+  grid-column: span 12;
 }
 
 .empty-state {
@@ -640,6 +1021,7 @@ function sourceKindLabel(kind: string) {
   .col-8 { grid-column: span 6; }
   .col-4 { grid-column: span 3; }
   .col-6 { grid-column: span 6; }
+  .col-12 { grid-column: span 6; }
 }
 
 @media (max-width: 760px) {
@@ -656,7 +1038,7 @@ function sourceKindLabel(kind: string) {
     grid-template-columns: 1fr;
   }
 
-  .col-4, .col-6, .col-8 {
+  .col-4, .col-6, .col-8, .col-12 {
     grid-column: span 1;
   }
 }

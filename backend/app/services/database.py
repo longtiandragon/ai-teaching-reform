@@ -231,6 +231,30 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS error_book (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                student_id TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_id TEXT,
+                course_line_id TEXT,
+                task_id TEXT,
+                question TEXT NOT NULL,
+                student_answer TEXT,
+                correct_answer TEXT,
+                error_analysis TEXT,
+                knowledge_points TEXT,
+                difficulty TEXT DEFAULT 'medium',
+                status TEXT DEFAULT 'open',
+                ai_analysis TEXT,
+                variant_question TEXT,
+                variant_answer TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         _seed_initial_accounts(conn)
         conn.commit()
 
@@ -1161,3 +1185,108 @@ def get_all_feedback() -> list[sqlite3.Row]:
                ORDER BY tf.created_at DESC
                LIMIT 200"""
         ).fetchall()
+
+
+# ─── 错题本 ─────────────────────────────────────────────────
+
+
+def add_error_entry(
+    student_id: str,
+    source_type: str,
+    question: str,
+    student_answer: str = "",
+    correct_answer: str = "",
+    error_analysis: str = "",
+    knowledge_points: str = "",
+    difficulty: str = "medium",
+    source_id: str | None = None,
+    course_line_id: str | None = None,
+    task_id: str | None = None,
+) -> int:
+    now = datetime.now(UTC).isoformat()
+    with get_conn() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO error_book(student_id, source_type, source_id, course_line_id, task_id,
+                question, student_answer, correct_answer, error_analysis, knowledge_points,
+                difficulty, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
+            """,
+            (student_id, source_type, source_id, course_line_id, task_id,
+             question, student_answer, correct_answer, error_analysis, knowledge_points,
+             difficulty, now, now),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_error_book(student_id: str, status: str | None = None) -> list[dict]:
+    with get_conn() as conn:
+        query = "SELECT * FROM error_book WHERE student_id = ?"
+        params: list = [student_id]
+        if status:
+            query += " AND status = ?"
+            params.append(status)
+        query += " ORDER BY created_at DESC"
+        return [dict(row) for row in conn.execute(query, params).fetchall()]
+
+
+def get_error_entry(entry_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM error_book WHERE id = ?", (entry_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_error_entry(entry_id: int, **kwargs) -> bool:
+    now = datetime.now(UTC).isoformat()
+    kwargs["updated_at"] = now
+    sets = ", ".join(f"{k} = ?" for k in kwargs)
+    values = list(kwargs.values()) + [entry_id]
+    with get_conn() as conn:
+        result = conn.execute(f"UPDATE error_book SET {sets} WHERE id = ?", values)
+        conn.commit()
+        return result.rowcount > 0
+
+
+def delete_error_entry(entry_id: int) -> bool:
+    with get_conn() as conn:
+        result = conn.execute("DELETE FROM error_book WHERE id = ?", (entry_id,))
+        conn.commit()
+        return result.rowcount > 0
+
+
+def get_error_stats(student_id: str) -> dict:
+    """获取错题统计数据。"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM error_book WHERE student_id = ?", (student_id,)
+        ).fetchall()
+        if not rows:
+            return {"total": 0, "open": 0, "mastered": 0, "byKnowledge": {}, "bySource": {}}
+
+        total = len(rows)
+        open_count = sum(1 for r in rows if r["status"] == "open")
+        mastered = sum(1 for r in rows if r["status"] == "mastered")
+
+        # 按知识点统计
+        by_knowledge: dict[str, int] = {}
+        for row in rows:
+            kp = row["knowledge_points"] or "未分类"
+            for k in kp.split(","):
+                k = k.strip()
+                if k:
+                    by_knowledge[k] = by_knowledge.get(k, 0) + 1
+
+        # 按来源统计
+        by_source: dict[str, int] = {}
+        for row in rows:
+            src = row["source_type"] or "unknown"
+            by_source[src] = by_source.get(src, 0) + 1
+
+        return {
+            "total": total,
+            "open": open_count,
+            "mastered": mastered,
+            "byKnowledge": dict(sorted(by_knowledge.items(), key=lambda x: -x[1])[:10]),
+            "bySource": by_source,
+        }

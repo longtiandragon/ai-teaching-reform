@@ -344,8 +344,9 @@ export const api = {
       headers: { 'Content-Type': 'multipart/form-data' },
     })).data
   },
-  async analytics() {
-    return (await axios.get('/api/teacher/analytics')).data
+  async analytics(studentId?: string) {
+    const params = studentId ? '?student_id=' + studentId : ''
+    return (await axios.get('/api/teacher/analytics' + params)).data
   },
   async skills(): Promise<AgentSkill[]> {
     return (await axios.get('/api/agent/skills')).data.skills
@@ -561,6 +562,30 @@ export const api = {
     }>
   }> {
     return (await axios.get('/api/teacher/feedback/all')).data
+  },
+
+  // Error Book
+  async errorBook(studentId: string, status?: string) {
+    const params = status ? '?status=' + status : ''
+    return (await axios.get('/api/error-book/' + studentId + params)).data
+  },
+  async errorBookStats(studentId: string) {
+    return (await axios.get('/api/error-book/' + studentId + '/stats')).data
+  },
+  async addErrorEntry(payload: any) {
+    return (await axios.post('/api/error-book', payload)).data
+  },
+  async updateErrorEntry(entryId: number, payload: any) {
+    return (await axios.put('/api/error-book/' + entryId, payload)).data
+  },
+  async deleteErrorEntry(entryId: number) {
+    return (await axios.delete('/api/error-book/' + entryId)).data
+  },
+  async analyzeError(eid: number) {
+    return (await axios.post('/api/error-book/' + eid + '/analyze')).data
+  },
+  async generateVariant(eid: number) {
+    return (await axios.post('/api/error-book/' + eid + '/generate-variant')).data
   },
 }
 

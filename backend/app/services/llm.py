@@ -30,6 +30,32 @@ class DeepSeekClient:
         if not self.settings.deepseek_live:
             raise LLMNotConfiguredError("智能助教未启用，暂时无法生成回复。")
 
+    async def direct_answer(self, prompt: str, max_tokens: int = 2000) -> str:
+        """直接调用 LLM，不需要 RAG 引用。用于错题分析、变体生成等场景。"""
+        self._ensure_live()
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(
+                api_key=self.settings.deepseek_api_key,
+                base_url=self.settings.deepseek_base_url,
+                timeout=self.settings.deepseek_timeout_seconds,
+                max_retries=0,
+            )
+            response = await client.chat.completions.create(
+                model=self.settings.deepseek_model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=max_tokens,
+            )
+            content = response.choices[0].message.content if response.choices else ""
+            if not content:
+                raise LLMError("DeepSeek 未返回有效内容。")
+            return content
+        except LLMError:
+            raise
+        except Exception as exc:
+            raise LLMError(f"DeepSeek 调用失败：{exc.__class__.__name__}") from exc
+
     async def answer(self, question: str, citations: list[Citation], mode: str = "student") -> str:
         self._ensure_live()
         if not citations:
